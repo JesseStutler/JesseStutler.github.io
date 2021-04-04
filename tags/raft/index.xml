@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>raft on Jesse's Blog</title><link>http://example.org/tags/raft/</link><description>Recent content in raft on Jesse's Blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><copyright>本站遵循 CC-BY-NC 4.0 协议</copyright><lastBuildDate>Tue, 09 Mar 2021 16:30:52 +0800</lastBuildDate><atom:link href="http://example.org/tags/raft/index.xml" rel="self" type="application/rss+xml"/><item><title>Raft</title><link>http://example.org/posts/raft/</link><pubDate>Tue, 09 Mar 2021 16:30:52 +0800</pubDate><guid>http://example.org/posts/raft/</guid><description>Raft 引言 Raft是分布式数据一致性算法，用于解决PAXOS多年来晦涩难懂且难以工程复现的问题，本文对Raft发表的原文论文进行了大致解读
+基本算法内容 Basics Follower,Candidate,Leader 每个server分为三种状态（状态转换图见Leader election）：
+Follower：只接受RPC请求（就算收到来自client的请求也会重定向给leader） Candidate：参加竞选，可以发送RequestVote RPC，同样也可以接受请求 Leader（only one）：只有Leader可以处理来自client的请求，可以发送AppendEntries RPC，可以是追加日志条目用，也可以是心跳检测用（定期检测其他server是否还活着，通过无条目追加的AppendEntries RPC来做到） term——任期 Raft将时间随机划分，每一段称为任期（任期是单调递增的），任期都以一次选举开始，选举可以是选出leader也可以是未能选出leader（未能选出leader就直接进入下一任期）
+每台server发现自己的任期小于其他机器就需要update到最新
+entry——条目 条目就是指日志的条目，由client发来的command+任期数（term number，用来检测不一致性）+index（条目索引）构成
+Leader election 状态转换图分析：
+Starts up:
+初始时，每台server都是Follower
+Follower&amp;mdash;&amp;gt;Candidate：
+当超出election timeout时间（长时间未收到有Leader发过来的RPC消息，说明当前cluster未选出leader，或者是未收到来自candidate的RequestVote RPC），Follower增加自己的当前任期数，并将自己转换为Candidate；参加竞选leader，给自己投票，然后并发地向其他server发送RequestVote RPC请求，需要他们给自己进行投票（一般规则是先收到谁请求就投谁）；重设election timeout
+Candidate&amp;mdash;&amp;gt;Candidate：
+选举发生投票分歧 未能选出leader（发生投票分歧），比如有好几台Candidates票数一致的情况，或者大家都是Candidate（不可能给竞争对手投票是吧:P ），增加自己的当前任期数，并开始新一轮的选举。不过这样有可能造成一直产生投票分歧的情况，打破这种情况并选出leader的机制就是election timeout，Candidates从时间段中随机给自己选一个election timeout时间，如果发生投票分歧，先超时的Candidate赢得选举
+Candidate收到Leader（已经暂时选出的）的RPC请求，发现其任期比自己旧，拒绝请求并保持Candidate状态 Candidate&amp;mdash;&amp;gt;Leader：
+赢得竞选（获得大多数servers的投票）
+Leader&amp;mdash;&amp;gt;Follower:
+通过RPC的回复发现自己的任期已过期（有比自己更新的任期），退回到Follower
+Candidate&amp;mdash;&amp;gt;Follower：
+输掉选举（收到了来自己已选出的leader的RPC，但要确定自己的任期至少和Leader的任期相同，参考第3步） 通过RPC的回复发现自己的任期已过期（有比自己更新的任期），退回到Follower Log Replication 首先要说明的是，Leader只追加条目（entry）而不修改或删除entry</description></item></channel></rss>

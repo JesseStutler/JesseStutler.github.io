@@ -1,0 +1,1433 @@
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Jesse's Blog</title><link>http://example.org/</link><description>Recent content on Jesse's Blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><copyright>本站遵循 CC-BY-NC 4.0 协议</copyright><lastBuildDate>Tue, 09 Mar 2021 16:30:52 +0800</lastBuildDate><atom:link href="http://example.org/index.xml" rel="self" type="application/rss+xml"/><item><title>Raft</title><link>http://example.org/posts/raft/</link><pubDate>Tue, 09 Mar 2021 16:30:52 +0800</pubDate><guid>http://example.org/posts/raft/</guid><description>Jesse's Blog http://example.org/posts/raft/ -&lt;h1 id="raft">Raft&lt;/h1>
+&lt;h2 id="引言">引言&lt;/h2>
+&lt;p>Raft是分布式数据一致性算法，用于解决PAXOS多年来晦涩难懂且难以工程复现的问题，本文对Raft发表的原文论文进行了大致解读&lt;/p>
+&lt;h2 id="基本算法内容">基本算法内容&lt;/h2>
+&lt;h3 id="basics">Basics&lt;/h3>
+&lt;p>&lt;img src="https://github.com/maemual/raft-zh_cn/raw/master/images/raft-%E5%9B%BE5.png" alt="图 5">&lt;/p>
+&lt;h4 id="followercandidateleader">Follower,Candidate,Leader&lt;/h4>
+&lt;p>每个server分为三种状态（状态转换图见Leader election）：&lt;/p>
+&lt;ul>
+&lt;li>Follower：只接受RPC请求（就算收到来自client的请求也会重定向给leader）&lt;/li>
+&lt;li>Candidate：参加竞选，可以发送RequestVote RPC，同样也可以接受请求&lt;/li>
+&lt;li>Leader（only one）：&lt;strong>只有Leader可以处理来自client的请求&lt;/strong>，可以发送AppendEntries RPC，可以是追加日志条目用，也可以是心跳检测用（定期检测其他server是否还活着，通过&lt;strong>无条目追加&lt;/strong>的AppendEntries RPC来做到）&lt;/li>
+&lt;/ul>
+&lt;h4 id="term任期">term——任期&lt;/h4>
+&lt;p>Raft将时间随机划分，每一段称为&lt;strong>任期&lt;/strong>（任期是单调递增的），任期都以一次选举开始，选举可以是选出leader也可以是未能选出leader（未能选出leader就直接进入下一任期）&lt;/p>
+&lt;p>&lt;strong>每台server发现自己的任期小于其他机器就需要update到最新&lt;/strong>&lt;/p>
+&lt;h4 id="entry条目">entry——条目&lt;/h4>
+&lt;p>条目就是指日志的条目，由client发来的&lt;code>command+任期数（term number，用来检测不一致性）+index（条目索引）&lt;/code>构成&lt;/p>
+&lt;h3 id="leader-election">Leader election&lt;/h3>
+&lt;p>&lt;img src="https://github.com/maemual/raft-zh_cn/raw/master/images/raft-%E5%9B%BE4.png" alt="图 4 ">&lt;/p>
+&lt;p>状态转换图分析：&lt;/p>
+&lt;ol>
+&lt;li>
+&lt;p>Starts up:&lt;/p>
+&lt;p>初始时，每台server都是Follower&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>Follower&amp;mdash;&amp;gt;Candidate：&lt;/p>
+&lt;p>当超出election timeout时间（长时间未收到有Leader发过来的RPC消息，说明当前cluster未选出leader，或者是未收到来自candidate的RequestVote RPC），Follower增加自己的当前任期数，并将自己转换为Candidate；参加竞选leader，给自己投票，然后并发地向其他server发送RequestVote RPC请求，需要他们给自己进行投票（&lt;strong>一般规则是先收到谁请求就投谁&lt;/strong>）；重设election timeout&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>Candidate&amp;mdash;&amp;gt;Candidate：&lt;/p>
+&lt;ul>
+&lt;li>选举发生投票分歧&lt;/li>
+&lt;/ul>
+&lt;p>未能选出leader（发生投票分歧），比如有好几台Candidates票数一致的情况，或者大家都是Candidate（不可能给竞争对手投票是吧:P ），增加自己的当前任期数，并开始新一轮的选举。不过这样有可能造成一直产生投票分歧的情况，打破这种情况并选出leader的机制就是&lt;strong>election timeout，Candidates从时间段中随机给自己选一个election timeout时间，如果发生投票分歧，先超时的Candidate赢得选举&lt;/strong>&lt;/p>
+&lt;ul>
+&lt;li>Candidate收到Leader（已经暂时选出的）的RPC请求，发现其任期比自己旧，拒绝请求并保持Candidate状态&lt;/li>
+&lt;/ul>
+&lt;/li>
+&lt;li>
+&lt;p>Candidate&amp;mdash;&amp;gt;Leader：&lt;/p>
+&lt;p>赢得竞选（获得&lt;strong>大多数&lt;/strong>servers的投票）&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>Leader&amp;mdash;&amp;gt;Follower:&lt;/p>
+&lt;p>通过RPC的回复发现自己的任期已过期（有比自己更新的任期），退回到Follower&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>Candidate&amp;mdash;&amp;gt;Follower：&lt;/p>
+&lt;ul>
+&lt;li>输掉选举（收到了来自己已选出的leader的RPC，&lt;strong>但要确定自己的任期至少和Leader的任期相同，参考第3步&lt;/strong>）&lt;/li>
+&lt;li>通过RPC的回复发现自己的任期已过期（有比自己更新的任期），退回到Follower&lt;/li>
+&lt;/ul>
+&lt;/li>
+&lt;/ol>
+&lt;h3 id="log-replication">Log Replication&lt;/h3>
+&lt;p>&lt;strong>首先要说明的是，Leader只追加条目（entry）而不修改或删除entry&lt;/strong>&lt;/p>
+&lt;p>Leader通过AppendEntries RPC来加条目复制到其他servers上，如果有server挂了他也会一直重复尝试发送。&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>Follower如何确定自己Leader发过来的条目可以追加？&lt;/p>
+&lt;p>Leader发送的条目会包括索引号和任期数，如果Follwer没有找到相同索引号和任期数的条目，就拒绝请求，找到了就说明这个条目之前的条目都是相同的&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>条目什么时候应该被apply到各个机器上？&lt;/p>
+&lt;p>我们称之为&lt;strong>提交&lt;/strong>（commited），当条目&lt;strong>已经被复制到大多数的servers&lt;/strong>上（维护一个replicas来确定），这些条目（包括之前的未提交的条目，前leader剩下的未提交的条目）就都会被提交，每台server都会维护一个highest index表示最后的已经提交的条目，已表示这之前的条目都已提交&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h3 id="leader-crash所导致的log不一致问题">Leader crash所导致的log不一致问题&lt;/h3>
+&lt;p>这个就是关键要解决的，Leader崩溃（然后发生Leader exchange）可能会导致一系列各server上&lt;strong>log不一致&lt;/strong>的问题（前leader可能还未完全复制给所有机器），&lt;strong>Follower可能会带有现Leader没有的log，或者更复杂的不一致问题&lt;/strong>，那如何解决呢？&lt;/p>
+&lt;p>&lt;strong>覆盖&lt;/strong>。&lt;/p>
+&lt;p>如果有不一致的log，Leader需要找到和Follower的日志中相同的&lt;strong>最后一个条目&lt;/strong>（也就是索引号和任期数相同，说明之前的条目都相同），然后将后面不一样的条目都&lt;strong>覆盖成Leader的&lt;/strong>（当然缺少的话就直接追加）。&lt;/p>
+&lt;blockquote>
+&lt;p>解决方法：当新leader出现时，他会先进行一致性检查，他会维护一个nextIndex，表示下一个要发送给follower的条目的索引号，当follower拒绝追加请求时（发现不一致），leader就减小nextIndex的大小，&lt;strong>直到条目相同为止&lt;/strong>，然后leader把这之后的条目全部覆盖掉Follower的日志&lt;/p>
+&lt;/blockquote>
+&lt;h3 id="safety">Safety&lt;/h3>
+&lt;p>当leader提交的时候万一发生Follower崩溃的情况，而Follower复原之后又当上新leader，可能会出现覆盖之前已经提交的entry的情况，继而造成不同server最后执行了不同command的情况&lt;/p>
+&lt;blockquote>
+&lt;p>解决方法：加上election restriction，对于candidate&lt;strong>必须要涵盖之前已经所有已经提交的entry&lt;/strong>，也就是说就算candidate获得了大多数票数的情况下，必须以涵盖所有已提交entry为前提，否则不能赢得选举&lt;/p>
+&lt;/blockquote>
+&lt;ul>
+&lt;li>
+&lt;p>那如何保证candidate涵盖了所有已经提交的条目呢？&lt;/p>
+&lt;p>candidate的日志必须是最新的（up-to-date）。怎样规定最新呢？两个server的日志如果任期更新者就是最新的，或者任期相同而拥有更长索引者就是最新的。如果candidate发送RequestVote RPC，&lt;strong>而其log不比voter新，voter就要拒绝投票给candidate&lt;/strong>。&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;p>还有的情况是，旧leader未能提交entry，而新leader也无法确定这个entry是否已提交&lt;/p>
+&lt;blockquote>
+&lt;p>leader只为当前任期是否应该提交维护一个replicas，也就是replicas如果是大多数的话就提交&lt;/p>
+&lt;/blockquote>
+&lt;h3 id="follower-and-candidate-crashes">Follower and candidate crashes&lt;/h3>
+&lt;ul>
+&lt;li>
+&lt;p>当Follower和candidate崩溃时，Leader会一直无限期的重发RPC直到它们重启并成功收到为止&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>保证幂等性：如果server在响应RPC前崩溃，要保证恢复后RPC的响应结果是一样的&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h3 id="timing-and-availability">Timing and availability&lt;/h3>
+&lt;blockquote>
+&lt;p>广播时间 &amp;laquo; 选举超时时间 &amp;laquo; 平均崩溃时间&lt;/p>
+&lt;/blockquote>
+&lt;p>系统的时间要遵循上述不等式，第一个不等式避免Follower收不到心跳消息而转而变成Candidate状态进入新的选举，第二个不等式避免一直无法选出Leader&lt;/p>
+&lt;p>广播时间和平均崩溃时间由现实决定，&lt;strong>选举超时时间一般在10ms到500ms之间&lt;/strong>&lt;/p>
+&lt;h2 id="优化">优化&lt;/h2>
+&lt;h3 id="cluster-membership-changes">Cluster membership changes&lt;/h3>
+&lt;p>如果集群需要更改配置，比如替换掉原来的机器或者加入新机器，先将集群停掉，更改完配置之后再上线会让集群有段时间不可用，但是如果直接将旧配置改为新配置有可能会造成集群同时出现两个leader的情况。Raft用一种两阶段算法，引入了一个过渡配置——共同一致，集群同时可以有旧配置和新配置的存在，但需要进行一定的限制，具体参考：https://github.com/maemual/raft-zh_cn/blob/master/raft-zh_cn.md#6-%E9%9B%86%E7%BE%A4%E6%88%90%E5%91%98%E5%8F%98%E5%8C%96&lt;/p>
+&lt;h3 id="log-compaction">Log compaction&lt;/h3>
+&lt;p>避免存储日志过多（提交了之后的日志条目会占用过多磁盘空间，其实只要保留一点metadata用来标识和回滚就够了）&lt;/p>
+&lt;blockquote>
+&lt;p>解决方法：snapshot（快照），&lt;strong>由每台server自己&lt;/strong>将已经提交的条目信息用metadata的形式记录下来形成snapshot，然后就可以把已经提交的日志条目丢弃了，这样就可以减少日志占用的空间，而且方便一致性检查，就是我们前文提到的当leader crash时出现的一系列问题，可以快速检索metadata获取最后提交的条目信息&lt;/p>
+&lt;/blockquote>
+&lt;p>这里引入一个InstallSnapshot RPC，当出现server已经提交而Follower还未提交的情况（比如刚刚加入集群的机器或者比较慢的未收到entry的机器），这时候Follower的snapshot是远远落后的&lt;/p>
+&lt;h3 id="client-interaction">client interaction&lt;/h3>
+&lt;p>client是随机请求集群中的server，不一定是leader，如果是Follower收到了请求他会重定向给Leader（AppendEntries RPC中包含了Leader的地址）&lt;/p>
+&lt;p>当Leader已经执行了client的请求发来的command，但是响应client前崩溃，client可能会重新提交这个command的请求，造成两次执行同样的command，我们需要给每个command维护一个serial number，表示command序列，当已经执行过了这个serial number的command，收到同样的请求就不再执行&lt;/p>
+&lt;h2 id="references">References&lt;/h2>
+&lt;p>&lt;a href="https://github.com/maemual/raft-zh_cn/blob/master/raft-zh_cn.md">https://github.com/maemual/raft-zh_cn/blob/master/raft-zh_cn.md&lt;/a>（论文中文翻译和原文）&lt;/p>
+&lt;p>&lt;a href="https://raft.github.io/">https://raft.github.io/&lt;/a>（raft概述和动画演示，以及论文原文下载）&lt;/p>
+- http://example.org/posts/raft/ - 本站遵循 CC-BY-NC 4.0 协议</description></item><item><title>Golang基础</title><link>http://example.org/posts/golang%E5%9F%BA%E7%A1%80/</link><pubDate>Sun, 07 Mar 2021 11:25:55 +0800</pubDate><guid>http://example.org/posts/golang%E5%9F%BA%E7%A1%80/</guid><description>Jesse's Blog http://example.org/posts/golang%E5%9F%BA%E7%A1%80/ -&lt;h1 id="golang">GOLANG&lt;/h1>
+&lt;h2 id="引言">引言&lt;/h2>
+&lt;p>云原生体系下，golang一定是必须要掌握的高级语言，golang内置的goroutine契合分布式架构的设计，越来越多的关于云的开源项目采用go进行实现。本文参考：http://c.biancheng.net/golang/intro/ ，本文对go的基础知识进行了大致介绍，可参照右侧的大纲检索，本文会持续更新。&lt;/p>
+&lt;p>这里笔者也推荐一些go练手项目：&lt;/p>
+&lt;ul>
+&lt;li>&lt;a href="https://geektutu.com/post/gee.html">https://geektutu.com/post/gee.html&lt;/a> 极客兔兔的7天用go从零实现系列（必须强烈推荐👍，一天天打下来能对很多go的开源项目有个大致的认识，也能学到很多技巧）&lt;/li>
+&lt;li>&lt;a href="https://courses.calhoun.io/courses">https://courses.calhoun.io/courses&lt;/a> 需要挂梯子，作为一些对于go不同的包的练手项目不错&lt;/li>
+&lt;/ul>
+&lt;h2 id="常用命令">常用命令&lt;/h2>
+&lt;ul>
+&lt;li>
+&lt;p>&lt;code>go install [package-name] &lt;/code>&lt;/p>
+&lt;p>编译并安装包，如果不是main包则会安装到pkg底下作为库包，如果是main包则会安装到bin底下作为可执行文件&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>go doc [package] [func] &lt;/code>&lt;/p>
+&lt;p>go手册&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>go build [file or package]&lt;/code>&lt;/p>
+&lt;p>如果是main包，生成可执行文件（可执行文件名同文件夹名），如果不是main包，不生成可执行文件，只进行编译&lt;/p>
+&lt;p>如果是单个.go文件，main包中&lt;strong>只能对含main函数&lt;/strong>的go文件进行编译并生成可执行文件，其他包只进行编译&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h3 id="go-module">go module&lt;/h3>
+&lt;p>&lt;strong>以后默认用go module的方式进行包管理和添加依赖，以后workspace不必在$GOPATH下，$GOPATH就存放下载的包和编译好的课执行文件&lt;/strong>&lt;/p>
+&lt;p>root workspace底下有两个文件，一个是go.mod（包管理），一个是go.sum（包校验），真正的包下载好放在$GOPATH/pkg/mod底下&lt;/p>
+&lt;p>&lt;strong>在root workspace底下&lt;/strong>用&lt;code>go mod init[模块名]&lt;/code>生成go.mod，模块名命名格式为example.com/xxx..（一般就github.com/foo这样），然后引用workspace底下子目录的go文件，用&lt;code>模块名/子目录名&lt;/code>的格式引用&lt;/p>
+&lt;p>&lt;strong>给项目添加依赖（写进 go.mod)的两种方法&lt;/strong>：&lt;/p>
+&lt;ul>
+&lt;li>你只要在项目中有 import，然后 go build 就会 go module 就会自动下载并添加（&lt;strong>perfect way&lt;/strong>）&lt;/li>
+&lt;li>自己手工使用 go get 下载安装后，会自动写入 go.mod&lt;/li>
+&lt;/ul>
+&lt;h4 id="常用命令-1">常用命令&lt;/h4>
+&lt;ul>
+&lt;li>
+&lt;p>&lt;code>go mod init&lt;/code>&lt;/p>
+&lt;p>初始化module&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>go mod tidy&lt;/code>&lt;/p>
+&lt;p>下载缺少的包，清除没有用上的包&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>go list&lt;/code>&lt;/p>
+&lt;p>-m all列出所有模块&lt;/p>
+&lt;p>-u -m all列出所有模块及其可能拥有的更新&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>go get -u [module] &lt;/code>&lt;/p>
+&lt;p>更新模块及其依赖到最新版本&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h2 id="变量">变量&lt;/h2>
+&lt;blockquote>
+&lt;p>简短变量声明被广泛用于大部分的局部变量的声明和初始化。var 形式的声明语句往往是用于需要显式指定变量类型地方，或者因为变量稍后会被重新赋值而初始值无关紧要的地方。&lt;/p>
+&lt;/blockquote>
+&lt;ul>
+&lt;li>一般以 &lt;code>变量名:=变量值&lt;/code>的形式由编译器自行判断类型并赋值（适用于局部变量，用在初始化的时候，注意是**:=而不是=，左部变量必须未定义，否则会产生编译错误**），**局部变量不可重复声明，声明的变量没有使用也会编译错误(import包如果没有用到也会报错，与java给个警告不同**，全局变量可以声明但不使用，或以&lt;code>var 变量名 type = 变量值&lt;/code>（var 变量名 = 变量值，自动识别）的形式赋值（适用于全局变量，用在暂时不需要初始化只需要声明的时候，**go也会给未进行初始化的变量赋值**）。&lt;/li>
+&lt;li>在同一行同时赋值，编译器会根据顺序将右边的值依次赋予给左边的变量，e.g：&lt;/li>
+&lt;/ul>
+&lt;p>a,b,c := 1,2,&amp;ldquo;hello&amp;rdquo;，也适用于一个函数有多个返回值时&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>交换值a,b=b,a&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;strong>匿名变量&lt;/strong>的特点是一个下画线“_”，本身就是一个特殊的标识符，被称为空白标识符。它可以像其他标识符那样用于变量的声明或赋值（任何类型都可以赋值给它），但任何赋给这个标识符的值都将被抛弃，因此这些值不能在后续的代码中使用，也不可以使用这个标识符作为变量对其它变量进行赋值或运算。e.g:&lt;/p>
+&lt;p>&lt;code>a, _ := GetData()&lt;/code>当函数有多个返回值但是暂时不需要赋给这么多变量时，用“_&amp;ldquo;吞掉返回的值&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>go中使用==或者!=等进行比较时，两边的变量类型必须相同，不相同必须进行强制类型转换（&lt;strong>注意bool无法与其他类型强转&lt;/strong>）&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>双引号声明字符串字面量不能跨行，需要用反引号`，多行字符串一般用于内嵌源码和内嵌数据等（换行会被保留，但是无法用转义）&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;strong>rune类型代表一个utf-8字符&lt;/strong>，它同等于int32，byte可表示一个ASCII字符，它同等于uint8&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>类型转换：go不能隐身转换，需要声明类型转换，valueOfTypeB = typeB(valueOfTypeA)&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>iota（多用于枚举，多常量声明形式，如以下代码，每显式声明一个const（或组） ，iota都会初始化为0，const组中每增加一行，iota就加1：&lt;/p>
+&lt;pre>&lt;code>const (
+Sunday = iota （Sunday=0）
+Monday （如果const中没有显式赋值，则赋值为前一行的值，即iota）
+Tuesday
+Wednesday
+Thursday
+Friday
+Saturday
+)
+&lt;/code>&lt;/pre>&lt;/li>
+&lt;li>
+&lt;p>类型别名：type TypeAlias = Type （TypeAlias仍然是Type型，只不过取了别名）&lt;/p>
+&lt;p>类型定义： type TypeAlias Type （没有等号，相当于C语言中的typedef，TypeAlias是一个新类型了），这种类型和原来的类型是不一样的静态类型，需要使用类型转换&lt;/p>
+&lt;p>类型断言：因为接口变量的动态类型是变化的，有时我们需要知道一个接口变量的动态类型究竟是什么，这就需要使用类型断言，断言就是对接口变量的类型进行检查，其语法结构如下：（&lt;strong>可以用于interface{}类型变量转换为其他类型变量&lt;/strong>）&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">value, ok := x.(T)
+x表示要断言的接口变量&lt;span style="color:#a61717;background-color:#e3d2d2">；&lt;/span>
+T表示要断言的目标类型&lt;span style="color:#a61717;background-color:#e3d2d2">；&lt;/span>
+value表示断言成功之后目标类型变量&lt;span style="color:#a61717;background-color:#e3d2d2">；&lt;/span>
+ok表示断言的结果&lt;span style="color:#a61717;background-color:#e3d2d2">，&lt;/span>是一个bool型变量&lt;span style="color:#a61717;background-color:#e3d2d2">，&lt;/span>true表示断言成功&lt;span style="color:#a61717;background-color:#e3d2d2">，&lt;/span>false表示失败&lt;span style="color:#a61717;background-color:#e3d2d2">，&lt;/span>如果失败value的值为nil&lt;span style="color:#a61717;background-color:#e3d2d2">。&lt;/span>
+&lt;/code>&lt;/pre>&lt;/div>&lt;/li>
+&lt;li>
+&lt;p>&lt;strong>指针不能进行偏移和运算&lt;/strong>&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>函数变量：类型为func([参数类型] [,参数类型……])[返回类型]&lt;/p>
+&lt;p>函数变量常常用于搭配匿名函数接收回调函数，&lt;strong>使用了回调函数，可以增加灵活性（具体函数由调用主体实现，被调用者只用函数变量来接收参数）&lt;/strong>&lt;/p>
+&lt;p>e.g:&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">&lt;span style="color:#228b22">// 遍历切片的每个元素, 通过给定函数进行元素访问
+&lt;/span>&lt;span style="color:#228b22">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">func&lt;/span> &lt;span style="color:#008b45">visit&lt;/span>(list []&lt;span style="color:#00688b;font-weight:bold">int&lt;/span>, f &lt;span style="color:#8b008b;font-weight:bold">func&lt;/span>(&lt;span style="color:#00688b;font-weight:bold">int&lt;/span>)) {
+&lt;span style="color:#8b008b;font-weight:bold">for&lt;/span> _, v := &lt;span style="color:#8b008b;font-weight:bold">range&lt;/span> list {
+&lt;span style="color:#008b45">f&lt;/span>(v)
+}
+}
+&lt;span style="color:#8b008b;font-weight:bold">func&lt;/span> &lt;span style="color:#008b45">main&lt;/span>() {
+&lt;span style="color:#228b22">// 使用匿名函数打印切片内容
+&lt;/span>&lt;span style="color:#228b22">&lt;/span> &lt;span style="color:#008b45">visit&lt;/span>([]&lt;span style="color:#00688b;font-weight:bold">int&lt;/span>{&lt;span style="color:#b452cd">1&lt;/span>, &lt;span style="color:#b452cd">2&lt;/span>, &lt;span style="color:#b452cd">3&lt;/span>, &lt;span style="color:#b452cd">4&lt;/span>}, &lt;span style="color:#8b008b;font-weight:bold">func&lt;/span>(v &lt;span style="color:#00688b;font-weight:bold">int&lt;/span>) {
+fmt.&lt;span style="color:#008b45">Println&lt;/span>(v)
+})
+}
+&lt;/code>&lt;/pre>&lt;/div>&lt;/li>
+&lt;li>
+&lt;p>interface{}空接口类型能够接受任意类型变量，因为interface{}不包含任何函数，所以任何类型都实现了空接口，interface的底层实际上是eface结构体&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">&lt;span style="color:#8b008b;font-weight:bold">type&lt;/span> eface &lt;span style="color:#8b008b;font-weight:bold">struct&lt;/span>{
+_type *_type
+data unsafe.Pointer
+}
+&lt;/code>&lt;/pre>&lt;/div>&lt;/li>
+&lt;/ul>
+&lt;h2 id="项目目录说明">项目目录说明&lt;/h2>
+&lt;blockquote>
+&lt;p>src：用于以包（package）的形式组织并存放 Go 源文件，这里的包与 src 下的每个子目录是一一对应。例如，若一个源文件被声明属于 log 包，那么它就应当保存在 src/log 目录中。&lt;/p>
+&lt;/blockquote>
+&lt;ul>
+&lt;li>同一个目录下所有的go文件只能有一个包名（package相同）,&lt;strong>但是包名可以与目录名不同（最好是建议相同）&lt;/strong>&lt;/li>
+&lt;li>main 包是Go语言程序的入口包，main函数是入口函数，只有package main的go文件能包含main函数（&lt;strong>有且仅有一个&lt;/strong>），一个Go语言程序必须&lt;strong>有且仅有一个&lt;/strong> main 包。如果一个程序没有 main 包，那么编译时将会出错，无法生成可执行文件&lt;/li>
+&lt;li>&lt;strong>使用大小写来决定常量，变量，函数等是否可以被外部包所使用，首字母大写就相当于public，首字母小写就相当于private&lt;/strong>&lt;/li>
+&lt;/ul>
+&lt;h2 id="条件循环语句">条件，循环语句&lt;/h2>
+&lt;p>&lt;strong>if 语句使用 tips&lt;/strong>&lt;/p>
+&lt;p>&lt;strong>（1）&lt;/strong> 不需使用括号将条件包含起来&lt;/p>
+&lt;p>&lt;strong>（2）&lt;/strong> &lt;strong>大括号{}必须存在，即使只有一行语句&lt;/strong>&lt;/p>
+&lt;p>&lt;strong>（3）&lt;/strong> &lt;strong>左括号必须在if或else的同一行，if的右括号要与else同一行（或者有多个else if的话）&lt;/strong>&lt;/p>
+&lt;p>&lt;strong>（4）&lt;/strong> &lt;strong>在if之后，条件语句之前，可以添加变量初始化语句，使用；进行分隔&lt;/strong>&lt;/p>
+&lt;p>&lt;strong>（5）&lt;/strong> 在有返回值的函数中，最终的return不能在条件语句中&lt;/p>
+&lt;p>&lt;strong>for&lt;/strong>&lt;/p>
+&lt;p>&lt;strong>（1）&lt;/strong> 不需要使用括号&lt;/p>
+&lt;p>&lt;strong>（2）&lt;/strong> 没有while语句，for condition {}相当于while，for{}相当于while(1)&lt;/p>
+&lt;p>&lt;strong>switch&lt;/strong>&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">&lt;span style="color:#8b008b;font-weight:bold">var&lt;/span> a = &lt;span style="color:#cd5555">&amp;#34;hello&amp;#34;&lt;/span>
+&lt;span style="color:#8b008b;font-weight:bold">switch&lt;/span> a {
+&lt;span style="color:#8b008b;font-weight:bold">case&lt;/span> &lt;span style="color:#cd5555">&amp;#34;hello&amp;#34;&lt;/span>,&lt;span style="color:#cd5555">&amp;#34;cello&amp;#34;&lt;/span>:
+fmt.&lt;span style="color:#008b45">Println&lt;/span>(&lt;span style="color:#b452cd">1&lt;/span>)
+&lt;span style="color:#8b008b;font-weight:bold">case&lt;/span> &lt;span style="color:#cd5555">&amp;#34;world&amp;#34;&lt;/span>:
+fmt.&lt;span style="color:#008b45">Println&lt;/span>(&lt;span style="color:#b452cd">2&lt;/span>)
+&lt;span style="color:#8b008b;font-weight:bold">default&lt;/span>:
+fmt.&lt;span style="color:#008b45">Println&lt;/span>(&lt;span style="color:#b452cd">0&lt;/span>)
+}
+&lt;/code>&lt;/pre>&lt;/div>&lt;p>（1）&lt;strong>case与case是独立的代码块，不需要break&lt;/strong>&lt;/p>
+&lt;p>（2）case的判断可以是表达式也可以多值，如上所示&lt;/p>
+&lt;p>&lt;strong>type-switch&lt;/strong>&lt;/p>
+&lt;p>用来判断接口变量的类型&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">&lt;span style="color:#8b008b;font-weight:bold">switch&lt;/span> 接口变量.(&lt;span style="color:#8b008b;font-weight:bold">type&lt;/span>) {
+&lt;span style="color:#8b008b;font-weight:bold">case&lt;/span> 类型1:
+&lt;span style="color:#228b22">// 变量是类型1时的处理
+&lt;/span>&lt;span style="color:#228b22">&lt;/span> &lt;span style="color:#8b008b;font-weight:bold">case&lt;/span> 类型2:
+&lt;span style="color:#228b22">// 变量是类型2时的处理
+&lt;/span>&lt;span style="color:#228b22">&lt;/span> &lt;span style="color:#a61717;background-color:#e3d2d2">…&lt;/span>
+&lt;span style="color:#8b008b;font-weight:bold">default&lt;/span>:
+&lt;span style="color:#228b22">// 变量不是所有case中列举的类型时的处理
+&lt;/span>&lt;span style="color:#228b22">&lt;/span>}
+&lt;/code>&lt;/pre>&lt;/div>&lt;p>是某个case的类型就匹配，否则匹配default&lt;/p>
+&lt;p>&lt;strong>select&lt;/strong>&lt;/p>
+&lt;p>结构类似switch，但是如果有多个case匹配，switch是顺序执行，select是随机执行，&lt;strong>只能用于通道的读写&lt;/strong>&lt;/p>
+&lt;p>&lt;strong>break和continue&lt;/strong>&lt;/p>
+&lt;p>go中的break有一项功能，就是可以跳到指定标签的循环，例如：&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">OuterLoop:&lt;span style="color:#228b22">//我这里给最外层循环打上了OuterLoop的标签
+&lt;/span>&lt;span style="color:#228b22">&lt;/span> &lt;span style="color:#8b008b;font-weight:bold">for&lt;/span> i := &lt;span style="color:#b452cd">0&lt;/span>; i &amp;lt; &lt;span style="color:#b452cd">2&lt;/span>; i++ {
+&lt;span style="color:#8b008b;font-weight:bold">for&lt;/span> j := &lt;span style="color:#b452cd">0&lt;/span>; j &amp;lt; &lt;span style="color:#b452cd">5&lt;/span>; j++ {
+&lt;span style="color:#8b008b;font-weight:bold">switch&lt;/span> j {
+&lt;span style="color:#8b008b;font-weight:bold">case&lt;/span> &lt;span style="color:#b452cd">2&lt;/span>:
+fmt.&lt;span style="color:#008b45">Println&lt;/span>(i, j)
+&lt;span style="color:#8b008b;font-weight:bold">break&lt;/span> OuterLoop&lt;span style="color:#228b22">//这里就不是跳出内层循环了，而是直接跳出最外层循环
+&lt;/span>&lt;span style="color:#228b22">&lt;/span> &lt;span style="color:#8b008b;font-weight:bold">case&lt;/span> &lt;span style="color:#b452cd">3&lt;/span>:
+fmt.&lt;span style="color:#008b45">Println&lt;/span>(i, j)
+&lt;span style="color:#8b008b;font-weight:bold">break&lt;/span> OuterLoop
+}
+}
+}
+&lt;/code>&lt;/pre>&lt;/div>&lt;p>continue同理，跳到指定标签循环的下一次循环&lt;/p>
+&lt;h2 id="函数">函数&lt;/h2>
+&lt;pre>&lt;code>func function_name( [parameter list] ) [return_types] {
+函数体
+}
+&lt;/code>&lt;/pre>&lt;p>函数可以返回多值&lt;/p>
+&lt;ul>
+&lt;li>未定义长度的数组只能传给不限制数组长度的函数，定义了长度的数组只能传给限制了相同数组长度的函数&lt;/li>
+&lt;/ul>
+&lt;p>匿名函数&lt;/p>
+&lt;ul>
+&lt;li>匿名函数就是没有定义函数名的函数，可以传给函数变量&lt;/li>
+&lt;/ul>
+&lt;p>闭包(closure)&lt;/p>
+&lt;ul>
+&lt;li>闭包通常是函数内部的匿名函数，在匿名函数中直接使用此函数的局部变量，该局部变量的生命周期会一直跟随着这个匿名函数&lt;/li>
+&lt;/ul>
+&lt;p>defer（延迟执行语句）&lt;/p>
+&lt;ul>
+&lt;li>延迟调用函数是&lt;strong>在 defer 所在函数结束前进行，return后进行&lt;/strong>。常使用在释放资源时，比如关闭文件，解锁等等。如果有多个defer，依次逆序调用&lt;/li>
+&lt;/ul>
+&lt;p>接口型函数&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>接口型函数在大量开源go项目中使用到，参考：https://geektutu.com/post/7days-golang-q1.html，简单就是说，一个接口&lt;strong>只有一个方法&lt;/strong>，而定义一个函数实现这个接口（&lt;strong>参数类型都要和接口中的方法的参数类型相同&lt;/strong>，然后实现时调用自己）。这样，就可以拿接口作为函数参数，既可以传入实现了接口的结构体（结构体可以增加自己的方法扩充接口的功能），也可以传入接口型函数（需要强制类型转换），而不单单只是原来定义了一个回调函数参数让用户实现。e.g:&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">&lt;span style="color:#228b22">// A Getter loads data for a key.
+&lt;/span>&lt;span style="color:#228b22">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">type&lt;/span> Getter &lt;span style="color:#8b008b;font-weight:bold">interface&lt;/span> {
+&lt;span style="color:#008b45">Get&lt;/span>(key &lt;span style="color:#00688b;font-weight:bold">string&lt;/span>) ([]&lt;span style="color:#00688b;font-weight:bold">byte&lt;/span>, &lt;span style="color:#00688b;font-weight:bold">error&lt;/span>)
+}
+&lt;span style="color:#228b22">// A GetterFunc implements Getter with a function.
+&lt;/span>&lt;span style="color:#228b22">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">type&lt;/span> GetterFunc &lt;span style="color:#8b008b;font-weight:bold">func&lt;/span>(key &lt;span style="color:#00688b;font-weight:bold">string&lt;/span>) ([]&lt;span style="color:#00688b;font-weight:bold">byte&lt;/span>, &lt;span style="color:#00688b;font-weight:bold">error&lt;/span>)
+&lt;span style="color:#228b22">// Get implements Getter interface function
+&lt;/span>&lt;span style="color:#228b22">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">func&lt;/span> (f GetterFunc) &lt;span style="color:#008b45">Get&lt;/span>(key &lt;span style="color:#00688b;font-weight:bold">string&lt;/span>) ([]&lt;span style="color:#00688b;font-weight:bold">byte&lt;/span>, &lt;span style="color:#00688b;font-weight:bold">error&lt;/span>) {
+&lt;span style="color:#8b008b;font-weight:bold">return&lt;/span> &lt;span style="color:#008b45">f&lt;/span>(key)
+}
+&lt;/code>&lt;/pre>&lt;/div>&lt;/li>
+&lt;/ul>
+&lt;h2 id="数组和切片">数组和切片&lt;/h2>
+&lt;p>切片就是动态数组，可以动态扩展容量，无需指定大小，它有三个元素：&lt;/p>
+&lt;ol>
+&lt;li>
+&lt;p>一个指针指向切片的开始位置&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>Len，切片的实际长度&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>cap，最大长度，预分配内存大小&lt;/p>
+&lt;/li>
+&lt;/ol>
+&lt;p>&lt;strong>切片如果改变元素是会对所有引用及原数组改变的，因为他实际是一个指针&lt;/strong>&lt;/p>
+&lt;p>数组初始化方法，例： arr := [3]int{3,4,5}（&lt;strong>数组大小必须固定&lt;/strong>），[&amp;hellip;]type可以根据初始化的个数来判断大小&lt;/p>
+&lt;p>切片初始化方法，例：arr := []int{3,4,5}（没指定大小）&lt;/p>
+&lt;h3 id="数组中取元素给切片或切片元素给其他切片">数组中取元素给切片(或切片元素给其他切片)&lt;/h3>
+&lt;p>比如有一个数组a，他是[n]int型数组&lt;/p>
+&lt;p>a[x:y]表示：从a[x]取起到a[y-1]，x为开始索引，y为结束索引（取到y-1）&lt;/p>
+&lt;p>不填x和y，默认第一个为0，第二个为n&lt;/p>
+&lt;ul>
+&lt;li>a[:]，同等a[0:n]，即获取a中所有元素&lt;/li>
+&lt;li>a[x:]从a&lt;input checked="" disabled="" type="checkbox"> 取起到a[n]&lt;/li>
+&lt;li>a[:y]从a[0]开始取其到a[y-1]&lt;/li>
+&lt;li>a[0:0]切片清空&lt;/li>
+&lt;/ul>
+&lt;h3 id="创建切片的方法">创建切片的方法&lt;/h3>
+&lt;p>&lt;strong>创建新切片&lt;/strong>&lt;/p>
+&lt;ol>
+&lt;li>
+&lt;p>普通方法创建：&lt;/p>
+&lt;p>&lt;code>var arr []int&lt;/code>，切片为nil，无元素&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>make函数创建（初始化切片元素到len的元素为0）：&lt;/p>
+&lt;p>&lt;code>slice1 := make([]type, len,[cap])&lt;/code>，容量cap可限定也可无限扩展，cap表示预分配内存大小，降低多次分配空间造成的影响&lt;/p>
+&lt;/li>
+&lt;/ol>
+&lt;p>&lt;strong>引用原数组或原切片的一部分&lt;/strong>&lt;/p>
+&lt;ol>
+&lt;li>
+&lt;p>引用另一个数组的一部分：&lt;/p>
+&lt;p>s := arr[start:end],即引用原数组或原切片start到end-1的元素&lt;/p>
+&lt;/li>
+&lt;/ol>
+&lt;h3 id="切片中追加元素">切片中追加元素&lt;/h3>
+&lt;p>切片追加元素用append(切片名，元素)，如果超过cap，cap会翻倍增加&lt;/p>
+&lt;p>&lt;strong>tips:&lt;/strong>(&amp;rdquo;&amp;hellip;&amp;ldquo;三个点表示任意参数)&lt;/p>
+&lt;p>&lt;strong>使用 slice&amp;hellip;表示slice中的所有元素，方便用于append&lt;/strong>&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">slice1=&lt;span style="color:#658b00">append&lt;/span>(slice1,slice2...) &lt;span style="color:#228b22">//slice2中的元素一个个追加入slice1中，这样不用一个个写出来了
+&lt;/span>&lt;span style="color:#228b22">&lt;/span>
+&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="切片复制">切片复制&lt;/h3>
+&lt;p>&lt;code>copy( destSlice, srcSlice)&lt;/code>，从源切片（可以是部分）拷贝到目标切片&lt;/p>
+&lt;h3 id="切片删除元素">切片删除元素&lt;/h3>
+&lt;ol>
+&lt;li>直接移动头指针&lt;/li>
+&lt;/ol>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">a = []&lt;span style="color:#00688b;font-weight:bold">int&lt;/span>{&lt;span style="color:#b452cd">1&lt;/span>, &lt;span style="color:#b452cd">2&lt;/span>, &lt;span style="color:#b452cd">3&lt;/span>}
+a = a[&lt;span style="color:#b452cd">1&lt;/span>:] &lt;span style="color:#228b22">// 删除开头1个元素
+&lt;/span>&lt;span style="color:#228b22">&lt;/span>a = a[N:] &lt;span style="color:#228b22">// 删除开头N个元素
+&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;ol start="2">
+&lt;li>原地append（元素前移法）&lt;/li>
+&lt;/ol>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">a = []&lt;span style="color:#00688b;font-weight:bold">int&lt;/span>{&lt;span style="color:#b452cd">1&lt;/span>, &lt;span style="color:#b452cd">2&lt;/span>, &lt;span style="color:#b452cd">3&lt;/span>}
+a = &lt;span style="color:#658b00">append&lt;/span>(a[:&lt;span style="color:#b452cd">0&lt;/span>], a[&lt;span style="color:#b452cd">1&lt;/span>:]...) &lt;span style="color:#228b22">// 删除开头1个元素（把第1个截掉，后面元素追加上来）
+&lt;/span>&lt;span style="color:#228b22">&lt;/span>a = &lt;span style="color:#658b00">append&lt;/span>(a[:&lt;span style="color:#b452cd">0&lt;/span>], a[N:]...) &lt;span style="color:#228b22">// 删除开头N个元素
+&lt;/span>&lt;span style="color:#228b22">&lt;/span>
+a = &lt;span style="color:#658b00">append&lt;/span>(a[:i], a[i+&lt;span style="color:#b452cd">1&lt;/span>:]...) &lt;span style="color:#228b22">// 删除中间1个元素（截到中间那个元素前，然后把中间后面的元素追加上来）
+&lt;/span>&lt;span style="color:#228b22">&lt;/span>a = &lt;span style="color:#658b00">append&lt;/span>(a[:i], a[i+N:]...) &lt;span style="color:#228b22">// 删除中间N个元素
+&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="range和for-each循环">range和for-each循环&lt;/h2>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">&lt;span style="color:#8b008b;font-weight:bold">for&lt;/span> key, value := &lt;span style="color:#8b008b;font-weight:bold">range&lt;/span> 数组或切片或map {
+代码块
+}
+&lt;/code>&lt;/pre>&lt;/div>&lt;p>使用range可以搭配for循环遍历数组、切片、map和字符串等，以key-value的形式返回（数组和切片的key是索引值），如果不需要key或者value可以用__占位符替代。使用range还可以搭配可变参数，e.g:&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">&lt;span style="color:#8b008b;font-weight:bold">func&lt;/span> &lt;span style="color:#008b45">myfunc&lt;/span>(args ...&lt;span style="color:#00688b;font-weight:bold">int&lt;/span>) {
+&lt;span style="color:#8b008b;font-weight:bold">for&lt;/span> _, arg := &lt;span style="color:#8b008b;font-weight:bold">range&lt;/span> args {
+fmt.&lt;span style="color:#008b45">Println&lt;/span>(arg)
+}
+}
+&lt;/code>&lt;/pre>&lt;/div>&lt;p>可变参数实际上就是一个切片，并且可以用&lt;code>args...&lt;/code>继续传给其他函数&lt;/p>
+&lt;p>&lt;strong>tips:&lt;/strong>&lt;/p>
+&lt;p>&lt;strong>需要注意的是，value为值的拷贝，所以只具有可读性，对这个value值的改变不会改变原来集合中的值&lt;/strong>&lt;/p>
+&lt;h2 id="map">Map&lt;/h2>
+&lt;h3 id="创建map">创建map&lt;/h3>
+&lt;ol>
+&lt;li>
+&lt;p>&lt;code>var 变量名 map[key_type]value_type&lt;/code>&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>用make函数创建：&lt;/p>
+&lt;p>&lt;code>变量名 := make(map[key_type]value_type,[cap])&lt;/code>&lt;/p>
+&lt;/li>
+&lt;/ol>
+&lt;p>&lt;strong>tips:&lt;/strong>&lt;/p>
+&lt;p>&lt;strong>value_type可以是切片，这样一个key就对应多个value值了，例如：父进程的pid作为key，多个子进程的pid作为切片元素&lt;/strong>&lt;/p>
+&lt;h3 id="map中追加元素">map中追加元素&lt;/h3>
+&lt;p>直接key-value方法赋值即可&lt;/p>
+&lt;h3 id="map删除元素">map删除元素&lt;/h3>
+&lt;p>&lt;code>delete(map,key)&lt;/code>&lt;/p>
+&lt;h2 id="containerlist">container/list&lt;/h2>
+&lt;p>实现为双向循环链表&lt;/p>
+&lt;p>list为element+len（链表长度，不包括哨兵），element才是具体节点&lt;/p>
+&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob78fnrlkj315h0m4wht.jpg" alt="IMG_0055">&lt;/p>
+&lt;h3 id="创建链表">创建链表&lt;/h3>
+&lt;p>&lt;code>变量 := list.New()&lt;/code>，New()返回一个*list，链表无节点，只有哨兵，len为0&lt;/p>
+&lt;h3 id="链表中插入元素">链表中插入元素&lt;/h3>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">这里head为*list&lt;span style="color:#a61717;background-color:#e3d2d2">，&lt;/span>代表链表的头
+尾部插入&lt;span style="color:#a61717;background-color:#e3d2d2">：&lt;/span>head.&lt;span style="color:#008b45">PushBack&lt;/span>(任意类型元素)
+前部插入&lt;span style="color:#a61717;background-color:#e3d2d2">：&lt;/span>head.&lt;span style="color:#008b45">PushFront&lt;/span>(任意类型元素)
+PushBack和PushFront都返回一个*Element&lt;span style="color:#a61717;background-color:#e3d2d2">，&lt;/span>用来方便在链表中插入节点
+这里用mark表示PushBack或PushFront返回的*Element
+在mark后插&lt;span style="color:#a61717;background-color:#e3d2d2">：&lt;/span>head.&lt;span style="color:#008b45">InsertAfter&lt;/span>(任意类型元素,mark)
+在mark前插&lt;span style="color:#a61717;background-color:#e3d2d2">：&lt;/span>head.&lt;span style="color:#008b45">InsertBefore&lt;/span>(任意类型元素,mark)
+&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="删除链表元素">删除链表元素&lt;/h3>
+&lt;p>&lt;code>head.Remove(mark)&lt;/code>&lt;/p>
+&lt;h3 id="遍历链表元素">遍历链表元素&lt;/h3>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">&lt;span style="color:#8b008b;font-weight:bold">for&lt;/span> i := l.&lt;span style="color:#008b45">Front&lt;/span>(); i != &lt;span style="color:#8b008b;font-weight:bold">nil&lt;/span>; i = i.&lt;span style="color:#008b45">Next&lt;/span>() {
+fmt.&lt;span style="color:#008b45">Println&lt;/span>(i.Value)
+}
+&lt;span style="color:#228b22">/*
+&lt;/span>&lt;span style="color:#228b22">Front()表示获取第一个节点，Back()表是获取最后一个节点，Next()表示下一节点,Value获取节点值
+&lt;/span>&lt;span style="color:#228b22">*/&lt;/span>
+&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="指针">指针&lt;/h2>
+&lt;p>指针的用法与c语言相同&lt;/p>
+&lt;p>也可以用 new()函数来创建指针，例：var_name := new(type)，这样var_name保存的是type类型变量的首地址&lt;/p>
+&lt;h2 id="结构体">结构体&lt;/h2>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">&lt;span style="color:#8b008b;font-weight:bold">type&lt;/span> 类型名 &lt;span style="color:#8b008b;font-weight:bold">struct&lt;/span> {
+字段1 字段1类型
+字段2 字段2类型
+&lt;span style="color:#a61717;background-color:#e3d2d2">…&lt;/span>
+}
+&lt;/code>&lt;/pre>&lt;/div>&lt;p>&lt;strong>tips:&lt;/strong>&lt;/p>
+&lt;ul>
+&lt;li>&lt;strong>结构体中的字段可以内嵌其他结构体，被内嵌的结构体中的字段可以直接引用，而不用多层引用（有点像继承），e.g:&lt;/strong>&lt;/li>
+&lt;/ul>
+&lt;p>&lt;code>a.b.c.d可以直接用a.d&lt;/code>&lt;/p>
+&lt;ul>
+&lt;li>&lt;strong>go中指针结构体中的字段可以直接引用（用了语法糖），而不用像C中一样用-&amp;gt;&lt;/strong>&lt;/li>
+&lt;/ul>
+&lt;h3 id="结构体实例化方式">结构体实例化方式&lt;/h3>
+&lt;ol>
+&lt;li>
+&lt;p>以创建指针的方式&lt;/p>
+&lt;p>&lt;code>ins := new(T)&lt;/code>&lt;/p>
+&lt;p>其中T为结构体类型名，返回一个*T&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>取结构体的地址实例化&lt;/p>
+&lt;p>&lt;code>ins := &amp;amp;T{}&lt;/code>&lt;/p>
+&lt;p>同样返回一个*T，然后&lt;code>T.字段名&lt;/code>赋值，或者&lt;strong>指明字段的方式&lt;/strong>&lt;/p>
+&lt;pre>&lt;code>ins := &amp;amp;结构体类型名{
+字段1: 字段1的值,
+字段2: 字段2的值,
+…
+}
+&lt;/code>&lt;/pre>&lt;p>字段与字段之间用,分隔，这种方式某个字段可以省略，那么字段值取省略值&lt;/p>
+&lt;p>或者&lt;strong>多值方式&lt;/strong>&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">ins := &amp;amp;结构体类型名{
+字段1的值,
+字段2的值,
+&lt;span style="color:#a61717;background-color:#e3d2d2">…&lt;/span>
+}
+&lt;/code>&lt;/pre>&lt;/div>&lt;p>这种方式省略字段名，但是所有结构体内的字段都必须赋值&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>直接定义&lt;/p>
+&lt;p>声明方式也是&lt;strong>指明字段和多值方式&lt;/strong>，只不过变量用的是T而不是*T而已&lt;/p>
+&lt;/li>
+&lt;/ol>
+&lt;h2 id="接口">接口&lt;/h2>
+&lt;p>go中的接口是非侵入式的，不同于Java这些语言需要显式的进行implements接口，go类型实现接口不需要进行声明，只需要实现接口中的所有方法，所以类型中的方法是接口中方法的&lt;strong>超集&lt;/strong>。非侵入式的好处还在于，不同于面向对象接口需要根据业务来事先制定接口中的方法，&lt;strong>甚至可以先实现类型再声明接口&lt;/strong>，可扩展性强，而且如果以后想把接口中一些方法独立出来列为新接口，按照Java这些侵入式的方法，是需要重新implements新接口并且重新编译的。&lt;strong>而且，类型实现接口甚至不需要引入包&lt;/strong>&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">&lt;span style="color:#8b008b;font-weight:bold">type&lt;/span> 接口类型名 &lt;span style="color:#8b008b;font-weight:bold">interface&lt;/span>{
+方法名1( 参数列表1 ) 返回值列表1
+方法名2( 参数列表2 ) 返回值列表2
+&lt;span style="color:#a61717;background-color:#e3d2d2">…&lt;/span>
+}
+&lt;/code>&lt;/pre>&lt;/div>&lt;p>参数&lt;strong>名&lt;/strong>和返回值&lt;strong>名&lt;/strong>都可以省略&lt;/p>
+&lt;h3 id="实现接口">实现接口&lt;/h3>
+&lt;p>e.g:&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">&lt;span style="color:#228b22">// 定义一个数据写入器
+&lt;/span>&lt;span style="color:#228b22">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">type&lt;/span> DataWriter &lt;span style="color:#8b008b;font-weight:bold">interface&lt;/span> {
+&lt;span style="color:#008b45">WriteData&lt;/span>(data &lt;span style="color:#8b008b;font-weight:bold">interface&lt;/span>{}) &lt;span style="color:#00688b;font-weight:bold">error&lt;/span>
+}
+&lt;span style="color:#228b22">// 定义文件结构，用于实现DataWriter
+&lt;/span>&lt;span style="color:#228b22">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">type&lt;/span> file &lt;span style="color:#8b008b;font-weight:bold">struct&lt;/span> {
+}
+&lt;span style="color:#228b22">// 实现DataWriter接口的WriteData方法
+&lt;/span>&lt;span style="color:#228b22">// 这里方法要指定接收者
+&lt;/span>&lt;span style="color:#228b22">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">func&lt;/span> (d *file) &lt;span style="color:#008b45">WriteData&lt;/span>(data &lt;span style="color:#8b008b;font-weight:bold">interface&lt;/span>{}) &lt;span style="color:#00688b;font-weight:bold">error&lt;/span> {
+&lt;span style="color:#228b22">// 模拟写入数据
+&lt;/span>&lt;span style="color:#228b22">&lt;/span> fmt.&lt;span style="color:#008b45">Println&lt;/span>(&lt;span style="color:#cd5555">&amp;#34;WriteData:&amp;#34;&lt;/span>, data)
+&lt;span style="color:#8b008b;font-weight:bold">return&lt;/span> &lt;span style="color:#8b008b;font-weight:bold">nil&lt;/span>
+}
+&lt;/code>&lt;/pre>&lt;/div>&lt;p>&lt;strong>tips:&lt;/strong>&lt;/p>
+&lt;ul>
+&lt;li>&lt;strong>只有当实现了接口的类型赋值给接口变量时，编译器才会去比较这个类型中是否全部实现了接口中的方法&lt;/strong>&lt;/li>
+&lt;li>内嵌结构体也能实现接口，这样外层结构体就不必再实现一次了，避免了冗余代码&lt;/li>
+&lt;li>实现类型不能是&lt;strong>系统内置类型，只能是结构体或者是用type定义的新类型&lt;/strong>&lt;/li>
+&lt;li>接口中可以像结构体一样嵌套接口，这样接口中就拥有被嵌套接口的所有方法了&lt;/li>
+&lt;/ul>
+&lt;h3 id="error接口">error接口&lt;/h3>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">&lt;span style="color:#8b008b;font-weight:bold">type&lt;/span> &lt;span style="color:#00688b;font-weight:bold">error&lt;/span> &lt;span style="color:#8b008b;font-weight:bold">interface&lt;/span> {
+&lt;span style="color:#008b45">Error&lt;/span>() &lt;span style="color:#00688b;font-weight:bold">string&lt;/span>
+}
+&lt;/code>&lt;/pre>&lt;/div>&lt;p>如果要自定义error可以实现Error()方法，返回错误信息，打印error默认调用的是error.Error()&lt;/p>
+&lt;p>errors包中的errors.New(&amp;ldquo;错误信息&amp;rdquo;)就是返回一个error对象&lt;/p>
+&lt;p>文章推荐：关于interface的十个问题，解析interface的一些机制和底层实现：https://mp.weixin.qq.com/s/EbxkBokYBajkCR-MazL0ZA&lt;/p>
+&lt;h2 id="宕机panic和宕机恢复recover">宕机(panic)和宕机恢复(recover)&lt;/h2>
+&lt;p>&lt;strong>Go语言没有异常系统，其使用 panic 触发宕机类似于其他语言的抛出异常（打印堆栈和信息），recover 的宕机恢复机制就对应其他语言中的 try/catch 机制。&lt;/strong>&lt;/p>
+&lt;p>panic()和recover()都为内置函数&lt;/p>
+&lt;p>如果当前的 goroutine 陷入panic，调用 recover 可以捕获到 panic 的输入值，并且恢复正常的执行。&lt;/p>
+&lt;p>&lt;strong>因为如果在手动panic前声明的defer会执行，所以可以将recover放到defer中，用于恢复，相当于Java中的catch，try中发生错误，直接将控制交给catch&lt;/strong>&lt;/p>
+&lt;p>e.g:&lt;/p>
+&lt;p>web服务器崩溃时用recover关闭连接，或者向客户端传递异常信息用于调试&lt;/p>
+&lt;h2 id="sort包">Sort包&lt;/h2>
+&lt;h3 id="排序">排序&lt;/h3>
+&lt;p>如果要对切片元素进行自定义排序，需要实现sort.Interface接口中的三个方法：&lt;/p>
+&lt;ol>
+&lt;li>​ Len() int // 获取元素数量&lt;/li>
+&lt;li>​ Less(i, j int) bool // i，j是序列元素的指数。&lt;strong>即表示怎么样算一个元素小于另一个元素，由自己实现&lt;/strong>&lt;/li>
+&lt;li>​ Swap(i, j int) // 交换元素&lt;/li>
+&lt;/ol>
+&lt;p>&lt;strong>注意，系统内置变量是不能够用来实现接口的，必须用type声明新类型&lt;/strong>&lt;/p>
+&lt;p>sort包中内置了一些切片，这些切片已经实现了Interface中的方法，&lt;strong>所以直接用这些切片定义，并用sort.Sort方法即可排序&lt;/strong>&lt;/p>
+&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob78l1bnmj31060aoq4k.jpg" alt="image-20201222154656587">&lt;/p>
+&lt;p>如果是针对于结构体想进行排序就要针对于某个字段写Less方法了&lt;/p>
+&lt;p>&lt;strong>这里推荐sort包中更快的实现方式&lt;/strong>，sort.Slice方法，这样就不必实现sort.Interface中所有方法，直接提供一个切片和回调函数就行了（就是提供一个Less()函数，怎么比较切片中元素的大小）&lt;/p>
+&lt;p>&lt;code>func Slice(slice interface{}, less func(i, j int) bool)&lt;/code>&lt;/p>
+&lt;h3 id="查找">查找&lt;/h3>
+&lt;p>sort.Search(n int, f func(i int) bool) int&lt;/p>
+&lt;p>利用二分查找返回f(i)==true时最小的索引值，f是用户提供的回调函数，当[0,i)时f为false，&amp;gt;=i时f为true，通常是搜索array或者slice时使用，n传入len(arrry或者slice)&lt;/p>
+&lt;h2 id="goroutine核心">goroutine（核心）&lt;/h2>
+&lt;p>参考资料：https://www.cnblogs.com/wdliu/p/9272220.html&lt;/p>
+&lt;p>goroutine相当于类线程，不同于其他语言线程之间是通过共享内存的方式来通信，&lt;strong>go中的goroutine是通过通道来相互传递消息的&lt;/strong>&lt;/p>
+&lt;p>goroutine和内核级线程的对应关系是&lt;strong>多对多&lt;/strong>关系，如果机器为多核机器，goroutine就可以并行执行&lt;/p>
+&lt;p>&lt;strong>使用方法&lt;/strong>：&lt;/p>
+&lt;p>&lt;strong>go 函数名(实参)即可运行一个goroutine&lt;/strong>&lt;/p>
+&lt;h3 id="mpg模型">MPG模型&lt;/h3>
+&lt;p>&lt;!-- raw HTML omitted -->&lt;/p>
+&lt;ul>
+&lt;li>M:M代表内核级线程，一个M就是一个线程；M是一个很大的结构，里面维护小对象内存cache（mcache）、当前执行的goroutine、随机数发生器等等非常多的信息。&lt;strong>M一定要和一个P绑定&lt;/strong>&lt;/li>
+&lt;li>G:代表一个goroutine，它有自己的栈，instruction pointer和其他信息（正在等待的channel等等），用于调度。&lt;/li>
+&lt;li>P:P全称是Processor，处理器，它的主要用途就是用来执行goroutine的，所以它也维护了一个自己的&lt;strong>local goroutine队列&lt;/strong>，里面存储了所有需要它来执行的goroutine。当然还存在一个&lt;strong>全局的global goroutine队列&lt;/strong>，如果local队列中的goroutine运行完了也会取global队列中的goroutine来运行&lt;/li>
+&lt;li>Sched：代表调度器，负责将goroutine调度到具体某个队列中（可以是新的goroutine加入，或者是从其他队列中取得的goroutine(work stealing机制））&lt;/li>
+&lt;/ul>
+&lt;p>&lt;strong>goroutine理想调度流程&lt;/strong>：&lt;/p>
+&lt;p>当通过&lt;code>go&lt;/code>关键字创建一个新的goroutine的时候，它会优先被放入P的本地队列。为了运行goroutine，M需要持有（绑定）一个P，接着M会启动一个OS线程，循环从P的本地队列里取出一个goroutine并执行。当然还有 &lt;code>work-stealing&lt;/code>调度算法：当M执行完了当前P的Local队列里的所有G后，P也不会就这么在那躺尸啥都不干，它会先尝试从Global队列寻找G来执行，如果Global队列为空，它会随机挑选另外一个P，从它的队列里中拿走一半的G到自己的队列中执行（不能让自己闲置起来）&lt;/p>
+&lt;p>参考资料：https://zhuanlan.zhihu.com/p/37754274&lt;/p>
+&lt;h3 id="channel通道">channel通道&lt;/h3>
+&lt;p>通道是一种双向的管道，用于goroutine间的信息交换（传输变量，结构体，指针等等）&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>无缓冲管道：&lt;/p>
+&lt;p>ch := make(chan 类型)&lt;/p>
+&lt;p>发送方向通道发送数据后，若没有接收方取数据就会阻塞，直到接收方接收为止；接收方同理&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>有缓冲管道：&lt;/p>
+&lt;p>ch := make(chan 类型，缓冲区大小)&lt;/p>
+&lt;p>不同于无缓冲的情况，发送方可以不用阻塞地一直向管道发送数据，直到缓冲区满之后才会阻塞；接收方也可以不用阻塞地从通道中取数据（当然是缓冲区中有数据的情况），直到没有数据可取为止，则接收方阻塞&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;strong>空结构体通道&lt;/strong>&lt;/p>
+&lt;p>因为空结构体struct{}不占内存，所以可以用来作为信号来同步，当一个goroutine完成时，可以通过发送struct{}{}表示已完成，通知另一端的goroutine&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h4 id="关闭通道">关闭通道&lt;/h4>
+&lt;p>使用原语close(chan)关闭通道，读取关闭的通道会读取到相应类型的&lt;strong>零值&lt;/strong>&lt;/p>
+&lt;h3 id="context">Context&lt;/h3>
+&lt;p>context可以用来goroutine之间进行&lt;strong>元数据传递或者退出通知（从ctx.Done()当中读出，节省资源）或者防止goroutine泄漏&lt;/strong>等操作，参考：https://zhuanlan.zhihu.com/p/68792989&lt;/p>
+&lt;h3 id="syncwaitgroup">sync.WaitGroup&lt;/h3>
+&lt;p>有时候主线程需要等待其他goroutine执行完毕，用time.Sleep的方法不太好，无法估计所有goroutine完成的时间，所以用sync.WaitGroup结构体来做同步比较好&lt;/p>
+&lt;p>方法：&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>Add(delta int)&lt;/p>
+&lt;p>delta表示要执行的goroutine数量&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>Done()&lt;/p>
+&lt;p>sync.WaitGroup变量调用一次Done()，结构体中的计数器（delta数）就-1&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>Wait()&lt;/p>
+&lt;p>一直阻塞，直到计数器变为0为止，可以放在main函数的最后，等待所有其他goroutine done，然后结束程序&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h3 id="互斥锁和读写互斥锁">互斥锁和读写互斥锁&lt;/h3>
+&lt;ul>
+&lt;li>
+&lt;p>互斥锁&lt;/p>
+&lt;p>sync.Mutex，对等操作系统里学的mutex&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>读写互斥锁&lt;/p>
+&lt;p>sync.RWMutex，封装了Mutex，还内置读者计数器，可用于单写者多读者，效率比普通互斥锁要高&lt;/p>
+&lt;/li>
+&lt;/ul>
+- http://example.org/posts/golang%E5%9F%BA%E7%A1%80/ - 本站遵循 CC-BY-NC 4.0 协议</description></item><item><title>Docker底层原理</title><link>http://example.org/posts/docker%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86/</link><pubDate>Sun, 07 Mar 2021 11:12:39 +0800</pubDate><guid>http://example.org/posts/docker%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86/</guid><description>Jesse's Blog http://example.org/posts/docker%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86/ -&lt;h1 id="docker底层原理">docker底层原理&lt;/h1>
+&lt;h2 id="namespace资源隔离">namespace——资源隔离&lt;/h2>
+&lt;p>namespace 是 Linux 内核用来隔离内核资源的方式，同一个namespace中的进程之间可以互相感知，不同namespace之间的进程是相互独立的，&lt;strong>docker本身就是一个进程，通过namespace来实现隔离，从而模拟独立运行环境&lt;/strong>，在/proc/$$/ns下能查看当前进程下的所有link文件，每个link文件对应不同的namespace，&lt;strong>如果不同的进程间有相同的namespace的inode号，则他们是共享namespace的&lt;/strong>，否则他们属于不同的的namespace&lt;/p>
+&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob6e80y1pj30i904dglp.jpg" alt="img">&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>**通过clone()函数在创建子进程的同时给子进程创建新的namespace（传入CLONE_*宏定义）**&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>UTS namespace：&lt;/p>
+&lt;p>提供&lt;strong>主机名和域名&lt;/strong>的隔离，使容器能够通过服务名访问&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>IPC namespace（进程间通信）：&lt;/p>
+&lt;p>实现&lt;strong>信号量、消息队列和共享内存等资源&lt;/strong>的隔离&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>PID namespace：&lt;/p>
+&lt;p>对进程内的PID重新标号，从1开始，每个PID namespace都有自己的计数程序，宿主机的PID namespace相当于创建进程的PID namespace的parent pid namespace，能看到子节点（child pid namespace)中的内容，但子节点不能看到父节点当中的内容，这样父节点能在外部管理容器内的进程&lt;/p>
+&lt;p>如果pid namespace中的某个进程的父进程被杀死，该进程成为孤儿进程，则&lt;strong>会被当前pid namespace的init进程（pid为1，如/bin/bash）收养，成为其子进程&lt;/strong>&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>mount namespace:&lt;/p>
+&lt;p>通过隔离文件系统挂载点来隔离文件系统（当创建新的mount namespace时，会将所有挂载点复制给子进程，但在这之后，子进程对自己namespace内文件系统进行的操作不会影响到父进程namespace）&lt;/p>
+&lt;p>&lt;strong>可以通过共享挂载机制传播挂载（主从挂载、共享挂载等）&lt;/strong>&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>network namespace:&lt;/p>
+&lt;p>提供网络资源的隔离，包括网络设备、协议栈、路由表、防火墙等等&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;p>&lt;img src="https://images2018.cnblogs.com/blog/1259802/201804/1259802-20180410165500455-232801094.jpg" alt="img">&lt;/p>
+&lt;p>&lt;strong>默认的bridge模式&lt;/strong>：&lt;/p>
+&lt;p>每个容器有独立的network namespace，宿主机通过docker0网桥（虚拟网桥）来连接不同的network namespace，容器通过veth pair（虚拟以太网端口对，它们组成了一个数据的通道，数据从一个设备进入，就会从另一个设备出来）连接docker0网桥，设备的一端放在新创建的容器中，并命名为eth0。另一端放在主机中，以veth65f9这样类似的名字命名。&lt;/p>
+&lt;p>如果容器想主动和外界通信，或者外界想访问容器内的服务（访问宿主机的端口），实际上这是通过iptables来管理的（进行了转发和NAT转换等操作）&lt;/p>
+&lt;p>&lt;strong>host模式：&lt;/strong>&lt;/p>
+&lt;p>容器和宿主机共享network namespace，但其他namespace与宿主机隔离，容器用的是宿主机的ip与外界通信，性能较好但易产生端口冲突&lt;/p>
+&lt;p>&lt;strong>container模式：&lt;/strong>&lt;/p>
+&lt;p>新创建的容器若指定container模式，则和已经存在的容器共享一个network namespace，与此容器共享ip和协议栈&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>user namespace&lt;/p>
+&lt;p>提供安全隔离，比如用户id，用户组，权限等，在子进程的user namespace中拥有新的用户和用户组，在父进程中的普通用户可能却成为子进程中namespace的超级用户，结构与pid namespace类似（树状结构），&lt;strong>子user namespace中的用户和用户组需要与父user namespace中的用户和用户组相对应（做映射）&lt;/strong>，这样这个user namespace才能与其他user namespace中的进程通信，甚至访问共享的文件（即对应到其他user namespace的用户和用户组并拥有相应的权限，如果没有相应的权限就不能在其他user namespace执行某些操作）&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h2 id="cgroups资源限制">cgroups——资源限制&lt;/h2>
+&lt;p>cgroups 是Linux内核提供的一种&lt;strong>可以限制单个进程或者多个进程所使用资源&lt;/strong>的机制，可以对 cpu，内存等资源实现精细化的控制（使用上限，使用范围等等），cgroup通过伪文件系统的形式进行控制&lt;/p>
+&lt;p>&lt;strong>涉及概念：&lt;/strong>&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>task（任务）：表示系统的一个进程或线程&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>subsystem(子系统)：每个子系统就是一个资源控制器，有cpu、memory、io等等，/sys/fs/cgroup/下的目录就代表每个子系统&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>hierarchy（层级）：层级由一系列的cgroup以一个树状形式组成，由一个或多个子系统限制层级的资源使用量&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;strong>cgroup&lt;/strong>（控制组）：核心概念，由cgroup组成层级，task放在cgroup中，从而控制进程的使用资源量，docker的实现方法就是在每个子系统中为每个容器创建cgroup&lt;/p>
+&lt;p>ps:笔者自己ipad画的图，有点简陋抱歉:P，以后文章的图有时间都会用Graffle好好画一下&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;p>![image-20201104214438717](/Users/chenzicong/Library/Application Support/typora-user-images/image-20201104214438717.png)&lt;/p>
+&lt;h2 id="docker-架构总览">docker 架构总览&lt;/h2>
+&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob68s57bpj311c0hm7ax.jpg" alt="image-20201209104859776">&lt;/p>
+&lt;h3 id="runc">runC&lt;/h3>
+&lt;p>是对于OCI标准的一个参考实现，是一个可以用于创建和运行容器的CLI(command-line interface)工具。runc直接与容器所依赖的cgroup/linux kernel等进行交互，负责为容器配置cgroup/namespace等启动容器所需的环境，创建启动容器的相关进程。runC基本上就是一个命令行小工具，它可以不用通过Docker引擎，直接就可以创建容器。这是一个独立的二进制文件，使用OCI容器就可以运行它。&lt;/p>
+&lt;h3 id="containerd">containerd&lt;/h3>
+&lt;p>containerd 是一个守护进程，它可以使用runC管理容器，并使用gRPC暴露容器的其他功能。docker engine面向client，containerd暴露出针对容器的增删改查的接口，Docker engine通过gRPC调用这些接口完成对于容器的操作，containerd最后会通过runc来实际运行容器。&lt;/p>
+&lt;h3 id="containerd-shim">containerd-shim&lt;/h3>
+&lt;p>containerd-shim称之为垫片，它使用runC命令行工具完成容器的启动、停止以及容器运行状态的监控。containerd-shim进程由containerd进程拉起，并持续存在到容器实例进程退出为止（和容器进程同生命周期）。这种设计的优点是，只要是符合OCI规范的容器，都可以通过containerd-shim来进行调用&lt;/p>
+&lt;h2 id="联合文件系统">联合文件系统&lt;/h2>
+&lt;p>&lt;img src="https://docs.docker.com/storage/storagedriver/images/container-layers.jpg" alt="Layers of a container based on the Ubuntu image">&lt;/p>
+&lt;p>&lt;strong>如果容器基于同一镜像构建，所有容器共享底部的镜像层，镜像层是read-only的，不可被修改，容器只是在镜像层之上创建了一个读写层，所有容器的修改都是在读写层当中修改，并不会影响到底部的镜像层，当容器删除了，读写层也就跟着删除了（除非commit做成了新的镜像）&lt;/strong>&lt;/p>
+&lt;p>&lt;strong>就算容器不是基于同一镜像构建，如果不同镜像中有相同的层（比如FROM是相同的），容器也会读取同一镜像层，这就是联合文件系统的精髓所在，副本只保存一份&lt;/strong>&lt;/p>
+&lt;p>&lt;img src="https://docs.docker.com/storage/storagedriver/images/sharing-layers.jpg" alt="Containers sharing same image">&lt;/p>
+&lt;h2 id="copy-on-writecow机制">Copy on write（COW）机制&lt;/h2>
+&lt;p>&lt;strong>当容器需要读取文件的时候&lt;/strong>&lt;/p>
+&lt;p>从最上层镜像开始查找，往下找，找到文件后读取并放入内存，若已经在内存中了，直接使用。(即，同一台机器上运行的docker容器共享运行时相同的文件)。&lt;/p>
+&lt;p>&lt;strong>当容器需要添加文件的时候&lt;/strong>&lt;/p>
+&lt;p>直接在最上面的容器层可写层添加文件，不会影响镜像层。&lt;/p>
+&lt;p>&lt;strong>当容器需要修改文件的时候&lt;/strong>&lt;/p>
+&lt;p>从上往下层寻找文件，找到后，&lt;strong>复制到容器可写层&lt;/strong>，然后，对容器来说，可以看到的是容器层的这个文件，看不到镜像层里的文件。容器在容器层修改这个文件（也就是覆盖）。&lt;/p>
+&lt;p>&lt;strong>如果是一个经常需要写的应用，最好使用volume而不是都写在容器层里，这样不会使容器层变得很大&lt;/strong>&lt;/p>
+&lt;p>&lt;strong>当容器需要删除文件的时候&lt;/strong>&lt;/p>
+&lt;p>从上往下层寻找文件，找到后在容器中记录删除。即，&lt;strong>并不会真正的删除文件，而是软删除&lt;/strong>。这将导致镜像体积只会增加，不会减少。&lt;strong>所以要写Dockerfile时如果要删除镜像中的文件，最好在同一层删除，否则只是软删除&lt;/strong>（因为如果真正的删除就会导致基于这个镜像构架内的其他容器无法再读取这个文件了）&lt;/p>
+&lt;h2 id="iptables默认规则只列举了部分">iptables默认规则（只列举了部分）&lt;/h2>
+&lt;ul>
+&lt;li>nat表：
+&lt;ul>
+&lt;li>如果数据源地址是docker0网段地址，且发往除docker 0外端口（即发往主机外），则做SNAT转换，修改为主机网卡ip地址&lt;/li>
+&lt;/ul>
+&lt;/li>
+&lt;li>filter表：
+&lt;ul>
+&lt;li>docker0发出的包可以中转给docker 0本身，即容器之间可以互相通信&lt;/li>
+&lt;li>docker0发出的包可以中转给其他宿主机上的其他网卡&lt;/li>
+&lt;/ul>
+&lt;/li>
+&lt;/ul>
+&lt;h2 id="参考资料">参考资料&lt;/h2>
+&lt;ul>
+&lt;li>《Docker容器与容器云 第2版》浙江大学SEL实验室·著&lt;/li>
+&lt;li>&lt;a href="https://www.jianshu.com/p/517e757d6d17">https://www.jianshu.com/p/517e757d6d17&lt;/a>&lt;/li>
+&lt;li>&lt;a href="https://www.cnblogs.com/sparkdev/tag/docker/default.html?page=1">https://www.cnblogs.com/sparkdev/tag/docker/default.html?page=1&lt;/a>&lt;/li>
+&lt;/ul>
+- http://example.org/posts/docker%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86/ - 本站遵循 CC-BY-NC 4.0 协议</description></item><item><title>Docker基础知识</title><link>http://example.org/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/</link><pubDate>Sun, 07 Mar 2021 10:56:15 +0800</pubDate><guid>http://example.org/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/</guid><description>Jesse's Blog http://example.org/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/ -&lt;h1 id="docker">Docker&lt;/h1>
+&lt;h2 id="docker拉取镜像流程图">Docker拉取镜像流程图&lt;/h2>
+&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob5syundsj318o0ogn1v.jpg" alt="截屏2020-08-12 上午10.33.14">&lt;/p>
+&lt;h2 id="docker-cli">Docker CLI&lt;/h2>
+&lt;h3 id="镜像命令">镜像命令&lt;/h3>
+&lt;ul>
+&lt;li>
+&lt;p>&lt;code>docker images 查看本地的镜像&lt;/code>&lt;/p>
+&lt;p>docker images [image-name[:tag]]
+默认不加参数就是-a，或者指定image的名字，可在image之上再加版本号
+&amp;ndash;a 列出所有镜像
+&amp;ndash;q [image] 列出镜像的id（-aq是列出所有的镜像id）&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>docker search 镜像&lt;/code>&lt;/p>
+&lt;p>搜索远程仓库镜像（docker hub上查看更详细）&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>docker rmi [repo[:tag]] &lt;/code>&lt;/p>
+&lt;p>删除本地镜像，使用方法与images相同，注意rmi是删除镜像，rm是删除容器&lt;/p>
+&lt;p>或者根据docker images -q [image]列出的id进行删除&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>docker tag source_image[:tag] target_image[:tag] &lt;/code>&lt;/p>
+&lt;p>改镜像标签名（不然默认传到docker hub上的library仓库会被拒绝）&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>docker pull 镜像&lt;/code>&lt;/p>
+&lt;p>默认拉取的是docker hub上的Image，也可以用一个容器跑一个local docker registry，然后让其他使用了docker pull并指定了docker registry地址和端口的机子从这台运行了docker registry的机子上拉镜像&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>docker push 镜像&lt;/code>&lt;/p>
+&lt;p>将镜像上传到docker hub上的仓库或指定仓库&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>docker save -o [tar文件名] [镜像名] &lt;/code>&lt;/p>
+&lt;p>用来将镜像保存到tar文件当中，可以指定一个或多个镜像名
+也可以使用gzip压缩tar，使用docker save [镜像名] | gzip &amp;gt; [xxx.tar.gz]&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>docker load -i [tar文件名或gzip等压缩格式] &lt;/code>&lt;/p>
+&lt;p>用来读取文件形成镜像&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h3 id="容器命令">容器命令&lt;/h3>
+&lt;blockquote>
+&lt;p>&lt;strong>docker run 创建容器并运行&lt;/strong>&lt;/p>
+&lt;/blockquote>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">docker run [选项] 镜像名 [参数]
+-it 获取stdin并运行一个伪tty(默认是/bin/bash，可在命令最后自己指定shell)
+--name 为容器指定一个名字(最好加上方便些，不然就要根据container id来指示是哪个容器)
+最好加上自己docker hub上的repo名，这样可以直接push到自己的repo，而不用tag再改镜像名，如 jesse/centos:tag
+-d 后台运行，如果容器没有对外提供服务或运行前台程序则会立刻停止
+-p 将容器内的端口与host os的端口绑定起来，如-p host_port:container_port可以通过访问host的某个端口来访问容器内的某个服务
+-P 大写P,将镜像指定的暴露端口与host os上的随机端口绑定起来，一般需要Dockerfile中有EXPOSE进行结合
+-v 将容器内的某个文件夹与host os的文件夹绑定起来（即数据同步，相当于挂载）
+1.如-v host_dir:container_dir 指定路径挂载，可以将容器内的指定文件夹数据同步到host os的指定目录上，这样删除容器时不至于数据丢失（比如容器内装有Mysql，这样删除容器就相当于把整个数据库都删了）
+2.如-v volume_name:container_dir 具名挂载，会指定卷名，可以通过docker volume inspect volume_name查看在Host os上的目录位置
+--volumes-from 继承已有的容器的数据卷（共享目录）
+e.g:
+docker run --name centos -it centos /bin/bash
+&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;p>&lt;strong>docker ps 查看容器&lt;/strong>&lt;/p>
+&lt;/blockquote>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">不指定参数就是查看正在运行的容器
+-a 查看所有容器（包括停止的容器）
+-q 列出容器id
+&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;p>docker rm [container id 或者 container name] 删除容器&lt;/p>
+&lt;/blockquote>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">不加参数需要指定container id或者container name，正在运行的容器无法删除
+-f 强制删除容器
+docker ps -aq | xargs docker rm -f 强制删除所有容器
+&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;p>docker start 启动容器&lt;/p>
+&lt;p>docker restart 重启容器&lt;/p>
+&lt;p>docker stop 停止容器&lt;/p>
+&lt;/blockquote>
+&lt;blockquote>
+&lt;p>docker logs 查看日志&lt;/p>
+&lt;/blockquote>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">-f 实时跟随
+-t 显示时间
+&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;p>docker top 显示容器内正在运行的进程&lt;/p>
+&lt;/blockquote>
+&lt;blockquote>
+&lt;p>docker inspect 显示容器的所有&lt;strong>配置信息（元数据）d&lt;/strong>&lt;/p>
+&lt;/blockquote>
+&lt;blockquote>
+&lt;p>&lt;strong>进入正在运行的容器&lt;/strong>&lt;/p>
+&lt;/blockquote>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">1.docker &lt;span style="color:#658b00">exec&lt;/span> [container] [command]
+在容器里跑一个命令
+-it 与docker run相同，获取stdin并进入伪tty
+e.g:
+docker &lt;span style="color:#658b00">exec&lt;/span> -it [container id或者container name] bash ———— 在容器里跑一个新的bash并进入
+2.docker attach [container]
+直接进入到container当中
+&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;p>docker cp 将容器中的文件拷贝到外部os或将外部os的文件拷贝至容器中&lt;/p>
+&lt;/blockquote>
+&lt;p>&lt;code>docker cp container:path dest_path&lt;/code>&lt;/p>
+&lt;blockquote>
+&lt;p>docker commit 由现有容器制作镜像&lt;/p>
+&lt;/blockquote>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">-a 指定作者名
+-m 这次提交要发布的消息
+docker commit [选项] container [image[:tag]]
+&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="卷命令">卷命令&lt;/h3>
+&lt;blockquote>
+&lt;p>docker volume&lt;/p>
+&lt;/blockquote>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">特别说明：不同的容器可以指定相同的volume
+ls 列出所有的卷
+inspect 查看指定卷的信息（可查看挂载在host os上具体哪个位置）
+&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="docker基本命令图">Docker基本命令图&lt;/h2>
+&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob60cd4z5j316t0u0k9j.jpg" alt="image-20200812163714285">&lt;/p>
+&lt;h2 id="docker层的概念">Docker层的概念&lt;/h2>
+&lt;p>&lt;img src="https://timgsa.baidu.com/timg?image&amp;amp;quality=80&amp;amp;size=b9999_10000&amp;amp;sec=1597383379693&amp;amp;di=8a718adcadd59dbfafaf89136bcf6efe&amp;amp;imgtype=0&amp;amp;src=http%3A%2F%2Fimg2020.cnblogs.com%2Fblog%2F2030366%2F202006%2F2030366-20200630103737429-2119801149.png" alt="img">&lt;/p>
+&lt;h2 id="dockerfile命令">Dockerfile命令&lt;/h2>
+&lt;p>tips:&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>命令最好大写，写一个命令代表构建&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>选用合适的镜像，不要选用过大的父镜像从而构建出臃肿庞大的镜像，选用小巧的父镜像（如alpine、busybox、debian等）&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;strong>使用多阶段构建形式（多个FROM命令，以最后一个FROM为根），例如将编译环境和构建环境分离开来可以避免镜像过大（因为构建环境只需要编译出来的可执行文件，而不需要编译所需的库和命令等一大堆文件）&lt;/strong>&lt;/p>
+&lt;p>COPY &amp;ndash;from=指定的阶段名&lt;/p>
+&lt;p>可以将指定阶段中编译好的文件拷贝到当前构建环境中，甚至可以从指定镜像中进行拷贝&lt;/p>
+&lt;p>e.g:&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="color:#228b22"># 编译阶段 命名为 builder&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">FROM&lt;/span>&lt;span style="color:#cd5555"> golang:1.10.3 as builder&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span> &lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#228b22"># ... 省略&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span> &lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#228b22"># 运行阶段&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">FROM&lt;/span>&lt;span style="color:#cd5555"> scratch&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span> &lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#228b22"># 从编译阶段的中拷贝编译结果到当前镜像中&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">COPY&lt;/span> --from=builder /build/server /&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;/li>
+&lt;/ul>
+&lt;blockquote>
+&lt;p>&lt;strong>docker build&lt;/strong> 根据Dockerfile构建镜像命令&lt;/p>
+&lt;/blockquote>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">docker build [选项] URL|PATH
+-f 要用哪一个Dockerfile（指定Path）
+-t 给镜像取名字，可加tag（name:tag）
+e.g:
+docker build -f Dockerfile -t name:tag . 将当前的文件夹作为环境构造镜像
+可以以PATH指定的目录作为上下文环境来构建镜像，最好是以空目录为上下文环境，里面只放Dockerfile（除非是放生成镜像必须的文件，因为上下文过大的话发送给daemon会很慢），也可以是指定URL作为构建环境，也就是Git Repository，比如Github
+&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;p>&lt;strong>FROM&lt;/strong>&lt;/p>
+&lt;/blockquote>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="color:#8b008b;font-weight:bold">FROM&lt;/span>&lt;span style="color:#cd5555"> image&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>Dockerfile都要以FROM开始，构建一个基本镜像&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>e.g:&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">FROM&lt;/span>&lt;span style="color:#cd5555"> scratch&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>这是Docker Hub上大多数镜像的选择，构建一个默认镜像&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;p>&lt;strong>RUN&lt;/strong>&lt;/p>
+&lt;/blockquote>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="color:#8b008b;font-weight:bold">RUN&lt;/span> shell_command&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>build镜像时所要执行的命令&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>一般以执行shell命令的格式最佳,默认是以RUN /bin/sh -c command形式执行的&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>一行写不下时可以通过&lt;span style="color:#cd5555">\换&lt;/span>行,执行多个命令最好用&amp;amp;&amp;amp;来相连，这样可以少些一些RUN，因为RUN、ADD、COPY这些命令写一个命令就会加一层，这样会使容器不那么臃肿庞大&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;p>CMD&lt;/p>
+&lt;/blockquote>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="color:#8b008b;font-weight:bold">CMD&lt;/span> [&lt;span style="color:#cd5555">&amp;#34;executable&amp;#34;&lt;/span>,&lt;span style="color:#cd5555">&amp;#34;param1&amp;#34;&lt;/span>,&lt;span style="color:#cd5555">&amp;#34;param2&amp;#34;&lt;/span>]一般以这种格式最佳（注意都要双引号，因为是JSON格式）&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">CMD&lt;/span>是容器运行时所要执行的命令，旨在指定run容器时所要做的默认动作，跟docker run后跟一个command原理是一样的&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>特别说明：Dockerfile中只能有一个CMD,如果有多个CMD，只有最后一个生效&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;p>ENTRYPOINT&lt;/p>
+&lt;/blockquote>
+&lt;pre>&lt;code>使用方法与CMD相同，但是docker run后面如果跟command会把CMD要执行的命令覆盖掉，ENTRYPOINT要执行的命令不会，甚至能给ENTRYPOINT追加参数
+&lt;/code>&lt;/pre>&lt;blockquote>
+&lt;p>LABEL&lt;/p>
+&lt;/blockquote>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="color:#8b008b;font-weight:bold">LABEL&lt;/span> &lt;span style="color:#00688b">key&lt;/span>=&lt;span style="color:#cd5555">&amp;#34;value&amp;#34;&lt;/span> &lt;span style="color:#00688b">key&lt;/span>=&lt;span style="color:#cd5555">&amp;#34;value&amp;#34;&lt;/span> ... &lt;span style="color:#00688b">key&lt;/span>=&lt;span style="color:#cd5555">&amp;#34;value&amp;#34;&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>给镜像加元数据，以键值对的形式多组追加，可以通过&lt;span style="color:#cd5555">\换&lt;/span>行,比如在LABEL里加上maintainer（维护者）等信息&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>可以通过docker inspect来查看&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;p>EXPOSE&lt;/p>
+&lt;/blockquote>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">让运行时的容器在指定端口进行监听，也就是暴露端口,默认是tcp，可以指定udp，如EXPOSE 53/udp&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>可以通过docker run中的-p来覆盖，也可以通过-P将host os上的随机端口与暴露的端口进行绑定&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;p>&lt;strong>ENV&lt;/strong>&lt;/p>
+&lt;/blockquote>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">为运行的容器设置环境变量&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">ENV&lt;/span> key value 一个ENV设置一个环境变量&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;p>ADD&lt;/p>
+&lt;/blockquote>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="color:#8b008b;font-weight:bold">ADD&lt;/span> &amp;lt;src&amp;gt;...&amp;lt;dest&amp;gt;&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>将src的文件，文件夹拷贝到dest，src可以是一个remote URL，dest可以是相对路径也可以是绝对路径，如果是相对路径那就是拷贝到WORKDIR/相对路径下&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>特别说明：dest如果是文件夹，想把文件拷贝到dest文件夹下，必须在最后加/&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">COPY&lt;/span>指令与ADD用法相同，但是ADD可以从远程url上拷贝，COPY只能拷贝本地宿主机上的文件&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;p>WORKDIR&lt;/p>
+&lt;/blockquote>
+&lt;pre>&lt;code>设置进入容器时的工作目录，能使用ENV设置的环境变量
+&lt;/code>&lt;/pre>&lt;h2 id="容器网络配置">容器网络配置&lt;/h2>
+&lt;blockquote>
+&lt;p>docker network&lt;/p>
+&lt;/blockquote>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">connect 将一个容器部署进某个配置的网络当中，通过ls查看网络名
+ls 列出所有网络
+inspect 查看网络描述信息
+create 创建网络，可通过-d指定方式，有bridge，host等等，可通过--subnet指定子网和后缀
+...
+要让容器使用docker network创建的网络，在docker run时指定--net即可
+&lt;/code>&lt;/pre>&lt;/div>- http://example.org/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/ - 本站遵循 CC-BY-NC 4.0 协议</description></item><item><title>kubectl常用命令</title><link>http://example.org/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/</link><pubDate>Sun, 07 Mar 2021 10:30:17 +0800</pubDate><guid>http://example.org/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/</guid><description>Jesse's Blog http://example.org/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/ -&lt;h1 id="k8s命令">k8s命令&lt;/h1>
+&lt;h2 id="引言">引言&lt;/h2>
+&lt;p>本文列举了一些kubectl的常用命令以及其对应的常用参数&lt;/p>
+&lt;p>kubectl的详细信息可参照：https://kubernetes.io/docs/reference/kubectl/overview/&lt;/p>
+&lt;p>如果熟悉了kubectl的朋友，对于经常性的&lt;code>kubectl get &lt;/code>和&lt;code>kubectl describe&lt;/code>查找resource感到繁琐，笔者在这里推荐一款开源的增强型kubectl软件k9s：https://github.com/derailed/k9s，相信对于vim熟悉的朋友会喜欢这款开源软件，而且可以当简略的dashboard使用&lt;/p>
+&lt;h2 id="kubectl">kubectl&lt;/h2>
+&lt;ul>
+&lt;li>
+&lt;p>&lt;code>kubectl create -f [yaml或者json文件]&lt;/code>&lt;/p>
+&lt;p>通过yaml或者json文件创建一个组件&lt;/p>
+&lt;p>-n 指定命名空间，如果不指定，默认是在default命名空间下，其他命令也一样&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>kubectl get [组件] [组件名]&lt;/code>&lt;/p>
+&lt;p>获取组件的基本信息，如果想获取详细信息用kubectl describe&lt;/p>
+&lt;p>-o wide 显示更多信息，-o yaml 以yaml格式显示组件信息&lt;/p>
+&lt;p>&amp;ndash;show-labels 多显示标签&lt;/p>
+&lt;p>-l 标签键=值 根据标签来筛选出pod基本信息，多个键值对用逗号分隔&lt;/p>
+&lt;p>-L [标签名] 多显示指定标签名的标签列，多个标签用逗号分隔&lt;/p>
+&lt;p>&amp;ndash;all-namespaces 列出所有命名空间的组件&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>kubectl logs [podname]&lt;/code>&lt;/p>
+&lt;p>查看pod内容器的日志输出，如果只有一个容器不用指定容器名，如果有多个容器，想查看指定容器的日志需要-c参数指定&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>kubectl label [组件] [组件名] key=value [--overwrite]&lt;/code>&lt;/p>
+&lt;p>修改或添加组件的标签，用key=value形式，如果要复写之前的标签，需要多加一个&amp;ndash;overwrite&lt;/p>
+&lt;p>如果要删除之前的标签，直接在key后跟一个减号即可（即key-）&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>kubectl delete [组件] [组件名1] [组件名2] [...]&lt;/code>&lt;/p>
+&lt;p>删除组件&lt;/p>
+&lt;p>-all 删除所有组件&lt;/p>
+&lt;p>注：删除命名空间，里面的组件也会一并删除&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>kubectl scale [组件] [组件名] --replicas&lt;/code>&lt;/p>
+&lt;p>设置组件管理的资源数量，组件可以是Deployment, ReplicaSet, Replication Controller, StatefulSet or job&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>kubectl exec [pod-name] -- [pod中的容器中需要执行的命令]&lt;/code>&lt;/p>
+&lt;p>在指定pod中的容器中运行一个命令，这里&amp;ndash;表示kubectl的结束，如果不写的话可能会被kubectl当成参数处理，会造成歧义&lt;/p>
+&lt;p>-c 指定容器&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>kubectl explain [source]&lt;/code>&lt;/p>
+&lt;p>查看资源文档，包括资源的manifest有哪些字段，apiVersion是多少等等&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h3 id="修改source配置的命令">修改source配置的命令&lt;/h3>
+&lt;ul>
+&lt;li>
+&lt;p>&lt;code>kubectl apply -f [文件]&lt;/code>&lt;/p>
+&lt;p>修改kubernetes资源，如果没有创建资源会创建资源，如果已经创建了资源则进行修改，文件可以是yaml文件&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>kubectl edit [source] [source-name]&lt;/code>&lt;/p>
+&lt;p>用vi编辑source的yaml配置&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>kubectl patch [source] [source-name] -p&lt;/code>&lt;/p>
+&lt;p>使用JSON格式修改或添加source属性&lt;/p>
+&lt;p>&lt;strong>改单个属性的时候很方便，不用像edit一样要打开Yaml找到对应属性&lt;/strong>&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;code>kubectl set image [source] [source-name] [container-name]=[new image]&lt;/code>&lt;/p>
+&lt;p>将source中的容器镜像修改为新的镜像&lt;/p>
+&lt;/li>
+&lt;/ul>
+- http://example.org/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/ - 本站遵循 CC-BY-NC 4.0 协议</description></item><item><title>K8s Resource概析</title><link>http://example.org/posts/k8s-resource%E6%A6%82%E6%9E%90/</link><pubDate>Sun, 07 Mar 2021 10:20:30 +0800</pubDate><guid>http://example.org/posts/k8s-resource%E6%A6%82%E6%9E%90/</guid><description>Jesse's Blog http://example.org/posts/k8s-resource%E6%A6%82%E6%9E%90/ -&lt;h1 id="k8s-resource概析">K8s Resource概析&lt;/h1>
+&lt;h2 id="引言">引言&lt;/h2>
+&lt;p>本文参照《Kubernetes in Action中文版》及其一些网上资料，对K8s中基础的Resource进行了概析。本文会持续更新。&lt;/p>
+&lt;h2 id="pod">pod&lt;/h2>
+&lt;ul>
+&lt;li>
+&lt;p>为什么需要pod?&lt;/p>
+&lt;p>主要目的是由多个进程组成的一个应用程序，多个进程不能聚集在一个容器中运行**（容器的设计目的就是只运行一个进程，如果容器中运行多个不相关的进程，比如需要包含一种进程崩溃后能够重启的机制，同时将进程的活动记录记录到相同的标准输出中，我们很难确定每个进程分别记录了什么），我们用pod来封装容器，将其作为k8s的基本单位**，既可以做到一个进程单独运行于一个容器当中，容器之间相互隔离，保持了容器的特性，又能同时运行一些密切相关的进程，为他们提供相同的环境。&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;p>pod中的容器共享network namespace，容器中运行的进程之间能够通过端口来相互通信（同一个pod中的容器拥有相同的loopback网路接口，可以通过发往localhost与其他容器中的进程相互通信）&lt;/p>
+&lt;ul>
+&lt;li>如何决定多个容器是否要放入同一个pod中？
+&lt;ul>
+&lt;li>它们需要一起运行还是可以在不同主机上运行&lt;/li>
+&lt;li>它们代表的是一个整体还是相互独立的组件&lt;/li>
+&lt;li>它们必须一起扩缩容还是可以分别进行&lt;/li>
+&lt;/ul>
+&lt;/li>
+&lt;/ul>
+&lt;h3 id="liveness-probe--readiness-probe">liveness probe &amp;amp; readiness probe&lt;/h3>
+&lt;ul>
+&lt;li>
+&lt;p>liveness probe——存活探针（&lt;strong>在pod running时检测&lt;/strong>）&lt;/p>
+&lt;p>通过 TCP、HTTP 或者命令行方式对应用就绪进行检测。对于 HTTP 类型探针，Kubernetes 会定时访问该地址，如果该地址的返回码不在 200 到 400 之间，则认为该容器不健康，会杀死该容器重建新的容器。&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>readiness probe——就绪探针（&lt;strong>在pod就绪前检测&lt;/strong>）&lt;/p>
+&lt;p>对于启动缓慢的应用，为了避免在应用启动完成之前将流量导入。Kubernetes 支持业务容器提供一个 readiness 探针，对于 HTTP 类型探针，Kubernetes 会定时访问该地址，如果该地址的返回码不在 200 到 400 之间，则认为该容器无法对外提供服务，不会把请求调度到该容器。&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h3 id="容器重启策略">容器重启策略&lt;/h3>
+&lt;ul>
+&lt;li>Always ： 容器失效时，kubelet 自动重启该容器（&lt;strong>就算成功执行完容器也会重启&lt;/strong>）&lt;/li>
+&lt;li>OnFailure ： 容器终止运行且退出码不为0时重启&lt;/li>
+&lt;li>Never ： 不论状态为何， kubelet 都不重启该容器&lt;/li>
+&lt;/ul>
+&lt;h3 id="节点亲和性">节点亲和性&lt;/h3>
+&lt;ul>
+&lt;li>
+&lt;p>nodeAffinity:&lt;/p>
+&lt;p>约束pod可以调度到哪些节点，是对nodeSelector的一种加强。有以下两种字段：&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>requiredDuringSchedulingIgnoredDuringExecution（硬限制）：&lt;/p>
+&lt;p>表示node&lt;strong>必须&lt;/strong>满足&lt;strong>pod指定条件&lt;/strong>(matchExpression）才能将pod调度到这些节点上，否则&lt;strong>不进行调度&lt;/strong>（与nodeSelector相同）&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>preferredDuringSchedulingIgnoredDuringExecution（软限制）：&lt;/p>
+&lt;p>&lt;strong>偏好&lt;/strong>将pod调度到满足pod指定条件的node上，如果节点不满足也没关系，&lt;strong>还是可以将pod调度到其他节点上&lt;/strong>&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;p>&lt;strong>IgnoredDuringExecution&lt;/strong>表示纵使节点标签发生改变，pod仍可以在节点上继续运行&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h3 id="pod间亲和性">pod间亲和性&lt;/h3>
+&lt;p>&lt;strong>如果是大集群不建议使用pod亲和，否则需要涉及到大量的处理&lt;/strong>&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>podAffinity和podAntiAffinity（pod亲和和反亲和）:&lt;/p>
+&lt;p>&lt;strong>既需要node匹配，又需要pod匹配&lt;/strong>，他的规则是：如果 X 节点上已经运行了一个或多个 满足规则 Y 的pod，则这个 pod 应该（或者在非亲和的情况下不应该）运行在 X 节点，X和Y都是标签（X是node的标签，可以是k8s内置标签也可以是自定义标签，表示一个&lt;strong>拓扑域&lt;/strong>，Y是pod标签）&lt;/p>
+&lt;p>字段与nodeAffinity相同，需要在pod的Spec中写明&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h3 id="污点和容忍度">污点和容忍度&lt;/h3>
+&lt;p>污点其实就是节点的&lt;strong>反亲和性&lt;/strong>，用处在于某些pod需要调度到特定节点上，而其他pod不能调度到这些节点上（就需要给这些pod加上容忍度），或者是某些节点挂掉了，需要驱逐某些pod，或者加上容忍度，容忍在指定时间内节点可以恢复，否则就要被驱逐&lt;/p>
+&lt;p>使用 kubectl taint nodes node1 key*value:NoSchedule命令给node加上taint，用法类似kubectl label，要说明的是NoSchedule，有以下几种动作：&lt;/p>
+&lt;ul>
+&lt;li>NoSchedule，如果node打上了taint，且pod没有指明tolerations，则pod不会被调度到该节点上&lt;/li>
+&lt;li>NoExecute，如果node打上了taint，则在该节点上运行的pod会被驱逐（一般是pod已经在该node上运行了，然后node挂了，由k8s自动给该node打上taint，然后驱逐node上运行的pod），pod也可以指明tolerations不被驱逐，或者在tolerations当中指明容忍时间，在超出容忍时间之后仍会被驱逐&lt;/li>
+&lt;li>PreferNoSchedule，如果没有合适的node，则可以被调度该node上（软限制）&lt;/li>
+&lt;/ul>
+&lt;p>节点可能会出现某种问题，如not-ready或者unreachable，那么&lt;strong>k8s会自动给node打上以下taint：&lt;/strong>&lt;/p>
+&lt;p>如果pod未指定对以下两种taint的容忍度，则k8s自动会给pod加上对以下taint的tolerations并指定容忍时间为300s，超过该时间taint未清除则pod仍会被驱逐&lt;/p>
+&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1goa6tpwjs7j314i05sgms.jpg" alt="image-20201106201619457">&lt;/p>
+&lt;h3 id="init-container">init container&lt;/h3>
+&lt;p>init container是pod中先于应用容器创建的容器，用于为应用容器进行一些初始化配置（配置卷，配置环境变量等等），或者安装一些实用工具等等，&lt;strong>推荐image使用busybox，然后再运行一些命令&lt;/strong>&lt;/p>
+&lt;p>&lt;strong>init container可以有多个，顺序执行，前一个成功执行后才能执行后一个（如果init容器执行失败，则k8s会重启该pod），有点类似job，全部成功执行完成之后（注意是之后），才会创建应用容器&lt;/strong>&lt;/p>
+&lt;p>init container不能使用readinessProbe和livenessProbe，&lt;strong>因为他们在应用容器创建之前完成，pod还未就绪&lt;/strong>&lt;/p>
+&lt;h3 id="容器资源限制">容器资源限制&lt;/h3>
+&lt;p>除自定义资源限制外，一般限制CPU和memory&lt;/p>
+&lt;p>两种限制：&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>requests:&lt;/p>
+&lt;p>&lt;strong>节点上pod的requests总和不能超过节点可用资源的100%&lt;/strong>，k8s的调度器调度也是根据requests来调度，如果pod的requests&lt;strong>小于&lt;/strong>（节点可使用资源总量-其他pod申请量），即使其他pod的&lt;strong>实际使用资源量&lt;/strong>未达到他们所申请量，这个pod也不可以调度到这个节点上。当未进行limits限制时，pod的实际使用资源量是可以&lt;strong>超过&lt;/strong>申请量的，比如有pod暂时不需要CPU时，而有计算密集型pod需要全力使用CPU时，便可以超过申请量全部占用CPU。&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>limits（底层实际上是cgrop进行限制）:&lt;/p>
+&lt;p>&lt;strong>节点上pod的limits总和可以超过节点可用资源的100%，我们称之为超卖&lt;/strong>，CPU进行limits限制时，进程分不到比限制量更多的CPU，而内存与CPU不同，因为内存一旦分配给进程，想要回收就需要进程主动释放，所以如果有恶意pod或者故障pod，或者是贪婪的进程就有可能吃掉节点上所有的内存，需要进行限制，&lt;strong>进程如果申请超过limits的量&lt;/strong>或者节点使用总量超过100%就有可能会造成OOM(out of memory)，进程就会根据策略被杀死（linux OOM_reaper subsystem）&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h4 id="pod-qos">pod QoS&lt;/h4>
+&lt;p>三种等级（优先级从低到高）：&lt;/p>
+&lt;ul>
+&lt;li>BestEffort&lt;/li>
+&lt;li>Burstable&lt;/li>
+&lt;li>Guranteed&lt;/li>
+&lt;/ul>
+&lt;p>当资源不够时，比如节点内存不够用时，就需要杀死pod中的进程，根据优先级&lt;strong>从低到高来杀死&lt;/strong>&lt;/p>
+&lt;p>那怎么来决定pod的QoS class呢，粗略的规则就是，BestEffort未声明requests和limits；Guranteed必须声明requests和limits，且两者相等；其他情况皆为Burstable（比如只有requests或者limits，requests&amp;lt;limits等），细致的规则可以参考：&lt;/p>
+&lt;p>&lt;strong>单容器pod&lt;/strong>：&lt;/p>
+&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEly1gnu8y3ll3pj32nb0u0qv5.jpg" alt="img">&lt;/p>
+&lt;p>&lt;strong>多容器pod:&lt;/strong>&lt;/p>
+&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEly1gnu8yai41bj32m20u0qv5.jpg" alt="img">&lt;/p>
+&lt;p>&lt;strong>当资源不够时，不同等级的情况下先杀死QoS等级低的Pod中的进程，相同等级的pod根据进程已使用资源量和可用资源量的比较来杀死进程&lt;/strong>&lt;/p>
+&lt;h3 id="limitrange和resourcequota">LimitRange和ResourceQuota&lt;/h3>
+&lt;p>LimitRange是用来限制某个命名空间&lt;strong>单个pod&lt;/strong>的可用资源，API server中存在LimitRange admission control插件，当发起Pod Post请求时就需要进行检查或者添加字段，比如pod层面可以限定pod中所有容器的最小requests总和或最大limits总量，容器层面可以限定默认的requests和默认的limits，还可以限定PVC最大申请量等。不同命名空间可以有不同的LimitRange，但是LimitRange无法限制命名空间中所有pod的资源总量，这需要ResourceQuota&lt;/p>
+&lt;p>ResourceQuota是用来限制某个命名空间&lt;strong>所有pod&lt;/strong>的可用资源，限定命名空间中所有pod requests总和或者limits总和，但是要&lt;strong>注意的是&lt;/strong>，这样pod必须限定resources字段，不然ResourceQuota无法确定已用的requests和limits量，或者明确给命名空间声明一个LimitRange&lt;/p>
+&lt;h3 id="hpahorizontal-pod-autoscaler">HPA(horizontal pod autoscaler)&lt;/h3>
+&lt;p>Autoscaler根据指定资源（通常是&lt;strong>CPU或者QPS（每秒查询率）&lt;strong>等）的metrics来&lt;/strong>自动水平扩缩&lt;/strong>pod（deployment或statefulset等资源控制的pod），&lt;strong>其通过根据从metric server采集到的pod的metrics来进行计算，从而改变deployment等资源的replicas&lt;/strong>，达到自动扩缩pod的目的&lt;/p>
+&lt;p>不过要注意的是，这个要让指定资源扩缩到的目标值是需要&lt;strong>显式&lt;/strong>的让管理员指定的，这个只能根据经验来确定&lt;/p>
+&lt;h4 id="pod数量计算方式">pod数量计算方式&lt;/h4>
+&lt;ul>
+&lt;li>单metric：如果是单资源计算的话，根据pod的&lt;code>[实际使用资源量之和/目标值]&lt;/code>再向上取整&lt;/li>
+&lt;li>多metrics：多资源计算的话，取各单metric的计算出的数量的Max值&lt;/li>
+&lt;/ul>
+&lt;h2 id="replicationcontroller">ReplicationController&lt;/h2>
+&lt;p>rc负责创建和管理pod的多个副本，其有三个部件：&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>label selector（标签选择器）：&lt;/p>
+&lt;p>用来标识pod，rc&lt;strong>只负责管理创建rc时指定标签的pod&lt;/strong>（&lt;strong>只管自己家的孩子&lt;/strong>），如果在这之后pod更改了标签，就脱离了rc的管理范围（pod相当于手动创建，无人管理，变成了孤儿），rc认为现有pod数与replicas不符合（即少了一个pod），会根据template创建新的pod&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>rplica count（副本个数）：&lt;/p>
+&lt;p>指定pod副本数&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>pod template（pod模板）：&lt;/p>
+&lt;p>用来创建新的pod，之后可以更改pod模板，只是创建出来的pod和之前的不一样了，rc并不关心pod长什么样，它只关心pod的副本数是不是符合预期&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;p>&lt;strong>如果pod数多了rc就会删除多余的pod（使符合replicas数），少了就会创建新的pod&lt;/strong>&lt;/p>
+&lt;p>可以用kubectl scale改变副本数量来水平扩缩pod&lt;/p>
+&lt;h2 id="replicaset">ReplicaSet&lt;/h2>
+&lt;p>ReplicationController的替代品，具有更强的标签筛选功能，工作机理与rc相同，&lt;strong>以后用rs即可&lt;/strong>&lt;/p>
+&lt;p>可基于标签名匹配，多标签匹配，单标签多值匹配，甚至匹配缺少某个标签的pod等（增加operator为in，notin，exists等等）&lt;/p>
+&lt;h2 id="daemonset">DaemonSet&lt;/h2>
+&lt;p>如果不指定selector，就会在&lt;strong>每个节点上管理一个pod（这些pod常用作来日志收集和资源监控）&lt;/strong>，指定了对于node标签的selector，就只会在特定节点上每个节点管理一个pod&lt;/p>
+&lt;h2 id="job--cronjob">Job &amp;amp; CronJob&lt;/h2>
+&lt;p>&lt;strong>job是一个批处理任务&lt;/strong>（可顺序可并行），用来安排一个或多个运行完后退出的pod&lt;/p>
+&lt;p>注意：&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>如果需要多次完成，可以指定completions字段，表示需要完成几次任务，job跑完一个pod后会再创建一个pod，以此类推（顺序执行），也可以指定parallelism数量并行执行&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;strong>job中pod的restartPolicy必须为onFailure或者Never&lt;/strong>，如果是onFailure，则容器异常退出后，pod仍会在原node上，而重启容器；如果是Never，则pod failed时，job会新建一个pod&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&lt;strong>job存在运行时限，如果超过了activeDeadlineSeconds这个时限，则job会视为失败&lt;/strong>&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;p>&lt;strong>一般创建cronjob来创建job&lt;/strong>，从而来创建pod，cronjob机制与linux crontab相同，会定时执行job&lt;/p>
+&lt;h2 id="service--endpoints">Service &amp;amp; EndPoints&lt;/h2>
+&lt;p>将相同功能的pod组（通过标签筛选）暴露一个固定的IP给外部或者内部集群访问（通过端口转发），&lt;strong>这样pod即使销毁或者转移，固定IP也不会变动&lt;/strong>，当有client请求service时，service会随机选择一个pod进行转发&lt;/p>
+&lt;p>参考资料：https://www.qikqiak.com/post/visually-explained-k8s-service/&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>服务发现：&lt;/p>
+&lt;ul>
+&lt;li>service如果早于pod创建，k8s会将为service维护的一些环境变量配置到容器当中&lt;/li>
+&lt;li>service也能通过kube dns通过域名解析来找到对应的ip（直接访问服务的FQDN，所有service对应的pod的容器当中，/etc/resolv.conf都有域名配置）&lt;/li>
+&lt;/ul>
+&lt;/li>
+&lt;li>
+&lt;p>Endpoints：&lt;/p>
+&lt;p>Endpoints是&lt;strong>一对对的 ip：端口 对&lt;/strong>（容器对外提供服务的那个端口），创建服务时是根据标签筛选器获得对应pod的ip：端口对，然后存储在Endpoints当中，当客户端连接service时，服务代理选择Endpoints当中的一个ip端口对，进行请求转发，也就是说，&lt;strong>服务有了Endpoints，才能将请求转发到相应的pod，没有标签筛选器筛选出对应的pod，服务只是个空服务而已&lt;/strong>，如果更换或者移除了选择器，Endpoints也会跟着变动或者停止更新&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>将服务暴露给客户端：&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>Nodeport:将service的type设置为nodeport，k8s将会为每个节点上开一个指定端口，到该端口的流量都会重定向到此服务，然后再由服务重定向到pod&lt;/p>
+&lt;p>Client &amp;ndash;&amp;gt; 节点的指定端口 &amp;ndash;&amp;gt;cluster服务&amp;ndash;&amp;gt; pod&lt;/p>
+&lt;p>既可以访问服务的集群ip来访问，也可以访问节点指定端口来访问&lt;/p>
+&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob3wn28e1j31400u0e8d.jpg" alt="image-20200917195909101">&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>LoadBalancer：将service的type指定为LoadBalancer，LoadBalancer需要有独有的公网ip，专门由负责负载均衡的机子来做重定向， 机制与nodeport一致（&lt;strong>只不过多做了一次数据流重定向&lt;/strong>）&lt;/p>
+&lt;p>Client &amp;ndash;&amp;gt; LoadBalancer &amp;ndash;&amp;gt; 节点的指定端口&amp;ndash;&amp;gt;cluster服务&amp;ndash;&amp;gt; pod&lt;/p>
+&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob3wrz939j31400u0b2k.jpg" alt="image-20200917200648198">&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;p>​ 总结：Load Balancer &amp;ndash;&amp;gt; Node Port &amp;ndash;&amp;gt; cluster service 层层往下&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>Ingress：&lt;/p>
+&lt;p>通过外加的ingress controller来进行反向代理和负载均衡，当客户端向ingress发送http请求，根据主机名和路径分发到对应的服务（&lt;strong>这样既可以只用一个公网ip就可以为多服务做负载均衡和对外暴露，又可以避免nodeport开放过多端口可能造成的安全问题，因为运行k8s需要关闭防火墙&lt;/strong>），通过与该服务相关联的Endpoint来查看ip，然后将客户端的请求转发给其中一个pod&lt;/p>
+&lt;p>Client &amp;ndash;&amp;gt; ingress controller &amp;ndash;&amp;gt; pod&lt;/p>
+&lt;p>Ingress controller实现方案： nginx，traefix，HAproxy等等&lt;/p>
+&lt;p>ingress参考资料：https://www.cnblogs.com/linuxk/p/9706720.html&lt;/p>
+&lt;p>ingress controller通常通过daemonset实现，在每个node上跑一个pod（如nginx），它会监听ingress的变化，一旦有新的ingress就根据模板生成配置然后写入pod中，然后reload。ingress就是转发规则，要发往哪些service，指定什么URL来转发到相应的service。&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;/li>
+&lt;li>
+&lt;p>headless服务：&lt;/p>
+&lt;p>将服务的clusterIP字段设置为none，k8s便不会为其分配集群ip，用dns查找服务会返回所有pod ip，客户端会直接访问pod，而不是经过服务代理&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>External Name:&lt;/p>
+&lt;p>通过external name指定集群外部服务（DNS名），将其虚拟为内部服务（直接通过cluster ip访问即可）&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h2 id="volume">volume&lt;/h2>
+&lt;p>&lt;strong>使用卷来让容器之间共享文件或者持久化文件&lt;/strong>&lt;/p>
+&lt;h3 id="volume的种类">volume的种类&lt;/h3>
+&lt;ul>
+&lt;li>
+&lt;p>emptyDir（&lt;strong>一个pod中的多个容器共享&lt;/strong>）:&lt;/p>
+&lt;p>emptyDir卷的声明周期与pod的生命周期相同，卷的声明是在创建pod时声明的，&lt;strong>pod删除卷也跟着删除&lt;/strong>，卷从一个空目录开始，挂载到多个容器的某个文件夹后（文件夹在不同容器的文件系统的位置可以不一样），多个容器之间便可以往里面存放文件，以便共享&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>gitRepo:&lt;/p>
+&lt;p>gitRepo实际上是一个emptyDir卷，与emptyDir同理，只不过创建卷后卷中会加入从git远程repo中clone下来的文件，比如web服务容器挂载了这样一个卷，网页开发者往git远程仓库里push新的网页版本，sidecar容器（通常是git syc容器）便可以进行数据同步，以便web服务器对外服务（&lt;strong>其实就是emptyDir的基础上之后多加了git repo中clone下来的数据而已&lt;/strong>）&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>hostPath:&lt;/p>
+&lt;p>hostPath可以提供持久化存储，不会随pod删除而删除，它访问的是节点上的文件系统，容器可以通过挂载hostPath卷访问节点上的某些特定文件夹下的文件，但是&lt;strong>不推荐使用hostPath来作为数据库数据等需要一直保存在目录上的数据&lt;/strong>，因为如果pod被重新调度到其他节点上就找不到hostPath上的数据了，所以应该用pv&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>configMap:&lt;/p>
+&lt;p>将每个configMap中的键值对暴露为文件放到卷中，挂载到容器当中之后从而容器可以进行读取，与emptyDir和gitRepo同理&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>PersistentVolume（持久化存储，后端存储）&lt;/p>
+&lt;p>&lt;strong>PV是对分布式存储资源的抽象&lt;/strong>，pv的提供者可以是各种云提供商，如AWS，GCE，也可以是nfs，glusterfs，ceph等开源分布式存储系统，具体实现具体对待。pv的信息包括存储能力（比如容量多大），访问模式（是ReadWriteOnce，ReadOnlyMany，还是ReadWriteMany），回收策略（与pvc解绑后对pv的处理是保留，回收还是删除）等。&lt;/p>
+&lt;p>pvc是对pv的申请，可以与pv进行一一绑定，只要有pv满足pvc中申请的容量和访问模式，k8s就会将其绑定起来，pv一旦与pvc绑定起来就不能再去与其他pvc绑定了，但是如果pv大小不满足pvc申请量，pvc会一直pending，直到有足够大小的pv加入。&lt;strong>pvc就相当于是卷，然后pod使用其来挂载到对应目录，相当于是pod-&amp;gt;pvc-&amp;gt;pv三层结构&lt;/strong>&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>动态绑定（&lt;strong>使用StorageClass&lt;/strong>)：&lt;/p>
+&lt;p>原始的静态绑定如下：&lt;/p>
+&lt;p>&lt;img src="https://www.kubernetes.org.cn/img/2018/06/20180604211538.png" alt="img">&lt;/p>
+&lt;p>原始静态绑定需要管理员实现创建好pv，工作是非自动的，且pv的量是静态的，很有可能造成资源浪费，所以推荐使用动态绑定：&lt;/p>
+&lt;p>&lt;img src="https://www.kubernetes.org.cn/img/2018/06/%E5%9B%BE%E7%89%872.png" alt="img">&lt;/p>
+&lt;p>现在加入一个资源叫StorageClass，用户创建pvc后，storageclass的控制器会根据pvc指定的storageClassName来找到对应的存储类，然后动态的创建pv，再将其与pvc绑定，这样的好处是&lt;strong>既动态创建pv，减少了管理员的工作量，又使用存储类来抽象描述一种存储类别，比如是”快速存储“还是”慢速存储“，是”冗余存储“还是”无冗余存储“等等，非常直观&lt;/strong>&lt;/p>
+&lt;p>如果没有默认存储类，且pvc没有指定storageClassName，则这个pvc只能与没有指定存储类的pv绑定，否则没有指定storageClassName的pvc将交由默认存储类处理&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;/li>
+&lt;/ul>
+&lt;h2 id="configmap">ConfigMap&lt;/h2>
+&lt;p>将配置单独列为资源，方便移动和修改，&lt;strong>这样pod定义时不用定死和重复环境变量配置&lt;/strong>，也增加了配置的重用性，而且使用环境变量和命令参数作为pod配置的方法无法在进程运行时更新配置，&lt;strong>configmap暴露为卷可以进行热更新,无需重新创建pod或重启容器&lt;/strong>&lt;/p>
+&lt;p>&lt;strong>configmap中存放的就是key-value对&lt;/strong>&lt;/p>
+&lt;p>kubectl create configmap [configmap-name]即可创建configmap（或者kubectl create -f xxx.yaml）&lt;/p>
+&lt;h3 id="参数形式">参数形式：&lt;/h3>
+&lt;ul>
+&lt;li>
+&lt;p>&amp;ndash;from-literal&lt;em>key&lt;/em>value 直接用key*value形式定义变量&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>&amp;ndash;from-file*[file or directory] 读取文件为变量，如果没指定key，则直接用file的名字为key，value为file中的数据，如果读取的是整个文件夹，则文件夹下所有的文件都会被列为key*value&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;p>&lt;strong>&amp;ndash;from-literal和&amp;ndash;from-file都可以写多个&lt;/strong>&lt;/p>
+&lt;h3 id="configmap的读取形式">configmap的读取形式：&lt;/h3>
+&lt;ul>
+&lt;li>pod的yaml中指定env或者envFrom来给容器当中的环境变量赋值，在这基础之上，还可以再传给pod中的yaml中的args来给命令参数赋值（&lt;strong>适用于变量值较短的场景&lt;/strong>）&lt;/li>
+&lt;li>使用configmap卷来存放configmap中的所有键值对，然后挂载到容器当中（&lt;strong>推荐，将变量值整合成为文件&lt;/strong>）。&lt;strong>需要注意的是，挂载会覆盖挂载点下原已有的文件，如果有需要不覆盖的话可以用subpath指定需要挂载的某个文件加到挂载点目录当中&lt;/strong>&lt;/li>
+&lt;/ul>
+&lt;h2 id="secret">Secret&lt;/h2>
+&lt;p>原理与configmap类似，可以存放二进制数据，采用base64编码，专门用来存储敏感数据（安全），&lt;strong>configmap用来存储非敏感数据（一些配置）&lt;/strong>&lt;/p>
+&lt;p>用secret卷挂载到容器当中即可引用secret内的key-value键值对，&lt;strong>最好不要用环境变量引用，因为环境变量会涉及到安全问题&lt;/strong>&lt;/p>
+&lt;p>Tips:&lt;/p>
+&lt;ul>
+&lt;li>k8s通过将secret分发到需要访问secret的pod所在的节点的内存中，这样也方便删除&lt;/li>
+&lt;li>如果未给pod指定service account，k8s会给pod指定其所在namespace的default service account，会在每个容器的/var/run/secrets/kubetnetes.io/serviceaccount目录挂载一个默认secret卷:default-token-xxxx，这个secret中含三个条目，分别是：
+&lt;ul>
+&lt;li>ca.crt：CA的证书，当pod访问API服务器时（通过https），验证API服务器返回的证书就是CA签发的&lt;/li>
+&lt;li>namespace: pod所在的namespace&lt;/li>
+&lt;li>token: 用来通过api server的认证&lt;/li>
+&lt;/ul>
+&lt;/li>
+&lt;/ul>
+&lt;h2 id="downwardapi">DownwardAPI&lt;/h2>
+&lt;p>使用configmap和secret无法让应用获取到&lt;strong>pod的ip，pod的名称，pod运行节点的名称&lt;/strong>等等只有pod成功部署后才会获取到的元数据，通过DownwardAPI的方式可以暴露一个pod这些部分元数据&lt;/p>
+&lt;h3 id="暴露方式">暴露方式：&lt;/h3>
+&lt;ul>
+&lt;li>直接在pod manifest的container当中声明环境变量，引用manifest当中的某些字段（环境变量方式）&lt;/li>
+&lt;li>通过挂载DownwardAPI卷来获取文件，从而获取元数据（卷方式，&lt;strong>卷方式才能暴露pod的标签和注解&lt;/strong>）&lt;/li>
+&lt;/ul>
+&lt;h2 id="deployment">Deployment&lt;/h2>
+&lt;p>deployment用于部署应用并以声明的形式升级应用&lt;/p>
+&lt;p>创建deployment时，replicaset也会跟着创建，由rs来管理pod，deployment管理多个rs&lt;/p>
+&lt;p>&lt;strong>更改deployment的&lt;/strong>pod模板&lt;strong>即可完成升级，由k8s的控制器操作完成&lt;/strong>&lt;/p>
+&lt;h3 id="升级方式">升级方式&lt;/h3>
+&lt;ul>
+&lt;li>
+&lt;p>蓝绿部署&lt;/p>
+&lt;p>在运行新版本的pod之前，service流量始终定位到旧版本pod，一旦确定新版本功能运行正常，修改service的选择器，定位到新版本的pod，删除旧版本的replicaset&lt;/p>
+&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob3wyc4q2j31wu0u0u13.jpg" alt="image-20201021161437006">&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>滚动升级&lt;/p>
+&lt;p>新的rs控制新版本的pod，通过更改新旧rs的期望数量来弹性扩缩旧版本与新版本的pod数量，新版本pod一点点增多，旧版本pod一点点减少，直到所有更新为止&lt;/p>
+&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob3x1q66qj31ou0u0npe.jpg" alt="6D21A0ED0EAF37931D60F5EF5098258D">&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>金丝雀升级&lt;/p>
+&lt;p>一小部分pod升级为新版本，牺牲一小部分用户的体验（beta版本），如果新版本适用则全部升级完成，否则回滚到上个版本&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h3 id="kubectl-rollout-命令">kubectl rollout 命令&lt;/h3>
+&lt;p>进行升级deployment时，可以通过kubectl rollout进行升级查看和回滚等&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>kubectl rollout status deployment [name]&lt;/p>
+&lt;p>查看滚动升级状态&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>history deployment [name]&lt;/p>
+&lt;p>查看升级历史（可以指定revision来回滚指定版本）&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>pause 暂停滚动升级&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>resume 恢复滚动升级&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>undo 回滚到上个版本&lt;/p>
+&lt;p>可添加&amp;ndash;to-revision参数回到history给出的指定revision版本&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h3 id="deployment-manifest重要字段">deployment manifest重要字段&lt;/h3>
+&lt;ul>
+&lt;li>
+&lt;p>maxSurge&lt;/p>
+&lt;p>除deployment定义的期望值外，最多允许超过的pod可用实例数量&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>maxUnavailable&lt;/p>
+&lt;p>相对于期望值，最多不可用pod的数量&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;p>可以通过修改maxSurge和maxUnavailable控制滚动升级速度&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>minReadySeconds&lt;/p>
+&lt;p>pod至少要运行minReadySeconds秒，才能视其为可用状态，因为maxUnavailable限制了不可用pod数量，所以不可用的话，滚动升级不会继续&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h2 id="statefulset">StatefulSet&lt;/h2>
+&lt;p>&lt;strong>用来维护有状态应用&lt;/strong>，因为有状态应用可能需要主机名，ip等不变&lt;/p>
+&lt;p>statefulset维护的pod副本名是可预知的，按照statefulset名称加顺序索引值组成，每次扩缩容都是扩缩索引最高的那个&lt;/p>
+&lt;p>statefulset对于有状态应用做出的改变：&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>对于ip可能的改变：&lt;/p>
+&lt;p>需要你除statefulset之外额外定义一个headless service，然后根据域名来访问各个pod，这样每个pod的dns记录固定&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>对于主机名维持不变&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>对于pod删除而存储可能发生的变动：&lt;/p>
+&lt;p>如果statefulset维护的pod被删除了，与replicaset相同，statefulset会重新创建pod，但这个pod可能会调度到其他节点上，对于有状态应用来说，有状态的pod应该挂载原来相同的存储，这就需要pvc和pv，创建一个statefulset的时候，不仅需要写pod模板，还需要写pvc，&lt;strong>statefulset对每个pod都创建一个或多个独立的pvc&lt;/strong>，因为挂载的pvc不变，所以新实例读取的仍然是旧实例的数据&lt;/p>
+&lt;p>注意：&lt;/p>
+&lt;p>如果pod被意外删除，&lt;strong>其挂载的pvc不会被删除&lt;/strong>，因为如果pvc被删除，其绑定的pv可能会被回收或者删除，那其上的数据就丢失了，所以无论是缩容还是意外删除了statefulset的pod，都会保留pvc，意外缩容了statefulset之后仍然能通过扩容，将pod重新挂载原来丢失了挂载的pvc，但是statefulset只能&lt;strong>线性缩容&lt;/strong>，不能在有一个实例不健康的时候进行缩容，这时同时有两个pod下线，那数据就丢失了。如果想删除pv，需要&lt;strong>手动&lt;/strong>删除绑定的pvc&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h2 id="serviceaccount">ServiceAccount&lt;/h2>
+&lt;p>user account是给集群外部用户设计的，而service account是为了&lt;strong>pod访问api server&lt;/strong>而设计的（每创建一个service account就会有对应的一个secret被创建，这个secret当中内含ca.cert，namespace，token，挂载点/var/run/secrets/kubernetes.io/serviceaccount，跟secret章节中提到的default token是一样的）&lt;/p>
+&lt;p>&lt;strong>tips:&lt;/strong>&lt;/p>
+&lt;p>Api server的访问过程需要经过的插件：认证(authenticaiton)&amp;ndash;&amp;gt;授权(authorization)&amp;ndash;&amp;gt;准入控制(admission control)&lt;/p>
+&lt;p>当创建一个namespace时，就会创建一个默认的default serviceaccount（每个namespace底下一个），所以service account是局限于其所在的namespace的。当创建一个pod时，默认指定的service account就是pod所在namespace底下的default（除非指定某个service account），&lt;strong>这个service account在默认没有绑定rolebinding或者clusterrolebinding的情况下，是没有查看和修改集群资源权限的&lt;/strong>&lt;/p>
+&lt;h3 id="rbac">RBAC&lt;/h3>
+&lt;p>四种RBAC资源（role可以理解为对于资源的权限，binding就是将权限赋予某个account）&lt;/p>
+&lt;h4 id="某个具体命名空间">某个具体命名空间&lt;/h4>
+&lt;ul>
+&lt;li>role:&lt;strong>对仅限于某个特定命名空间&lt;/strong>的资源的操作权限&lt;/li>
+&lt;li>rolebinding:&lt;strong>仅限于某个特定命名空间&lt;/strong>的权限绑定&lt;/li>
+&lt;/ul>
+&lt;h4 id="集群范围或任意命名空间">集群范围或任意命名空间&lt;/h4>
+&lt;ul>
+&lt;li>clusterrole:&lt;strong>对于集群资源或所有命名空间资源或非资源型URL&lt;/strong>的操作权限&lt;/li>
+&lt;li>clusterrolebinding:&lt;strong>对于集群资源或所有命名空间资源或非资源型URL&lt;/strong>的权限绑定&lt;/li>
+&lt;/ul>
+&lt;p>&lt;strong>当binding绑定到某个service account或user account之后，这个account就获得了对于role规定的权限&lt;/strong>&lt;/p>
+&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEly1gni8tkzq8nj32c30u04qq.jpg" alt="img">&lt;/p>
+&lt;p>一些重要的系统自定clusterrole：&lt;/p>
+&lt;ul>
+&lt;li>view：除了role，rolebinding和secret外可以读取大部分资源&lt;/li>
+&lt;li>edit：除了role，rolebinding外可以读取和修改大部分资源&lt;/li>
+&lt;li>admin: 除了ResourceQuota能读取和修改所有资源&lt;/li>
+&lt;li>cluster admin:完全能读取和修改所有资源&lt;/li>
+&lt;/ul>
+- http://example.org/posts/k8s-resource%E6%A6%82%E6%9E%90/ - 本站遵循 CC-BY-NC 4.0 协议</description></item></channel></rss>
