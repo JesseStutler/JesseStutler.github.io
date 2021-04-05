@@ -17,7 +17,7 @@ Raft是分布式数据一致性算法，用于解决PAXOS多年来晦涩难懂�
 
 ### Basics
 
-![图 5](https://github.com/maemual/raft-zh_cn/raw/master/images/raft-%E5%9B%BE5.png)
+![图 5](https://tva1.sinaimg.cn/large/008eGmZEgy1gp8plfwpl8j30ef05o0t3.jpg)
 
 #### Follower,Candidate,Leader
 
@@ -39,7 +39,7 @@ Raft将时间随机划分，每一段称为**任期**（任期是单调递增的
 
 ### Leader election
 
-![图 4 ](https://github.com/maemual/raft-zh_cn/raw/master/images/raft-%E5%9B%BE4.png)
+![图 4 ](https://tva1.sinaimg.cn/large/008eGmZEgy1gp8pln7a9hj30hn07x0tq.jpg)
 
 状态转换图分析：
 

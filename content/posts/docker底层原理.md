@@ -89,7 +89,7 @@ cgroups 是Linux内核提供的一种**可以限制单个进程或者多个进�
 
   ps:笔者自己ipad画的图，有点简陋抱歉:P，以后文章的图有时间都会用Graffle好好画一下
 
-![image-20201104214438717](/Users/chenzicong/Library/Application Support/typora-user-images/image-20201104214438717.png)
+![image-20201104214438717](https://tva1.sinaimg.cn/large/008eGmZEgy1gp8pmb9h1aj30xg0pdq97.jpg)
 
 ## docker 架构总览
 
