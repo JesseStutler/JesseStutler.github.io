@@ -3,7 +3,7 @@
 &lt;p>Raft是分布式数据一致性算法，用于解决PAXOS多年来晦涩难懂且难以工程复现的问题，本文对Raft发表的原文论文进行了大致解读&lt;/p>
 &lt;h2 id="基本算法内容">基本算法内容&lt;/h2>
 &lt;h3 id="basics">Basics&lt;/h3>
-&lt;p>&lt;img src="https://github.com/maemual/raft-zh_cn/raw/master/images/raft-%E5%9B%BE5.png" alt="图 5">&lt;/p>
+&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gp8plfwpl8j30ef05o0t3.jpg" alt="图 5">&lt;/p>
 &lt;h4 id="followercandidateleader">Follower,Candidate,Leader&lt;/h4>
 &lt;p>每个server分为三种状态（状态转换图见Leader election）：&lt;/p>
 &lt;ul>
@@ -17,7 +17,7 @@
 &lt;h4 id="entry条目">entry——条目&lt;/h4>
 &lt;p>条目就是指日志的条目，由client发来的&lt;code>command+任期数（term number，用来检测不一致性）+index（条目索引）&lt;/code>构成&lt;/p>
 &lt;h3 id="leader-election">Leader election&lt;/h3>
-&lt;p>&lt;img src="https://github.com/maemual/raft-zh_cn/raw/master/images/raft-%E5%9B%BE4.png" alt="图 4 ">&lt;/p>
+&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gp8pln7a9hj30hn07x0tq.jpg" alt="图 4 ">&lt;/p>
 &lt;p>状态转换图分析：&lt;/p>
 &lt;ol>
 &lt;li>
@@ -709,7 +709,7 @@ fmt.&lt;span style="color:#008b45">Println&lt;/span>(i.Value)
 &lt;p>ps:笔者自己ipad画的图，有点简陋抱歉:P，以后文章的图有时间都会用Graffle好好画一下&lt;/p>
 &lt;/li>
 &lt;/ul>
-&lt;p>![image-20201104214438717](/Users/chenzicong/Library/Application Support/typora-user-images/image-20201104214438717.png)&lt;/p>
+&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gp8pmb9h1aj30xg0pdq97.jpg" alt="image-20201104214438717">&lt;/p>
 &lt;h2 id="docker-架构总览">docker 架构总览&lt;/h2>
 &lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob68s57bpj311c0hm7ax.jpg" alt="image-20201209104859776">&lt;/p>
 &lt;h3 id="runc">runC&lt;/h3>
