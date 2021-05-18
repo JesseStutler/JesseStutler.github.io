@@ -57,12 +57,12 @@ ls 列出所有的卷
 inspect 查看指定卷的信息（可查看挂载在host os上具体哪个位置）
 </code></pre></div><h2 id=docker基本命令图>Docker基本命令图</h2><p><img src=https://tva1.sinaimg.cn/large/008eGmZEgy1gob60cd4z5j316t0u0k9j.jpg alt=image-20200812163714285></p><h2 id=docker层的概念>Docker层的概念</h2><p><img src="https://timgsa.baidu.com/timg?image&quality=80&size=b9999_10000&sec=1597383379693&di=8a718adcadd59dbfafaf89136bcf6efe&imgtype=0&src=http%3A%2F%2Fimg2020.cnblogs.com%2Fblog%2F2030366%2F202006%2F2030366-20200630103737429-2119801149.png" alt=img></p><h2 id=dockerfile命令>Dockerfile命令</h2><p>tips:</p><ul><li><p>命令最好大写，写一个命令代表构建</p></li><li><p>选用合适的镜像，不要选用过大的父镜像从而构建出臃肿庞大的镜像，选用小巧的父镜像（如alpine、busybox、debian等）</p></li><li><p><strong>使用多阶段构建形式（多个FROM命令，以最后一个FROM为根），例如将编译环境和构建环境分离开来可以避免镜像过大（因为构建环境只需要编译出来的可执行文件，而不需要编译所需的库和命令等一大堆文件）</strong></p><p>COPY &ndash;from=指定的阶段名</p><p>可以将指定阶段中编译好的文件拷贝到当前构建环境中，甚至可以从指定镜像中进行拷贝</p><p>e.g:</p><div class=highlight><pre style=background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-dockerfile data-lang=dockerfile><span style=color:#228b22># 编译阶段 命名为 builder</span><span style=color:#a61717;background-color:#e3d2d2>
 </span><span style=color:#a61717;background-color:#e3d2d2></span><span style=color:#8b008b;font-weight:700>FROM</span><span style=color:#cd5555> golang:1.10.3 as builder</span><span style=color:#a61717;background-color:#e3d2d2>
-</span><span style=color:#a61717;background-color:#e3d2d2></span>   <span style=color:#a61717;background-color:#e3d2d2>
+</span><span style=color:#a61717;background-color:#e3d2d2>
 </span><span style=color:#a61717;background-color:#e3d2d2></span><span style=color:#228b22># ... 省略</span><span style=color:#a61717;background-color:#e3d2d2>
-</span><span style=color:#a61717;background-color:#e3d2d2></span>   <span style=color:#a61717;background-color:#e3d2d2>
+</span><span style=color:#a61717;background-color:#e3d2d2>
 </span><span style=color:#a61717;background-color:#e3d2d2></span><span style=color:#228b22># 运行阶段</span><span style=color:#a61717;background-color:#e3d2d2>
 </span><span style=color:#a61717;background-color:#e3d2d2></span><span style=color:#8b008b;font-weight:700>FROM</span><span style=color:#cd5555> scratch</span><span style=color:#a61717;background-color:#e3d2d2>
-</span><span style=color:#a61717;background-color:#e3d2d2></span>   <span style=color:#a61717;background-color:#e3d2d2>
+</span><span style=color:#a61717;background-color:#e3d2d2>
 </span><span style=color:#a61717;background-color:#e3d2d2></span><span style=color:#228b22># 从编译阶段的中拷贝编译结果到当前镜像中</span><span style=color:#a61717;background-color:#e3d2d2>
 </span><span style=color:#a61717;background-color:#e3d2d2></span><span style=color:#8b008b;font-weight:700>COPY</span> --from=builder /build/server /<span style=color:#a61717;background-color:#e3d2d2>
 </span></code></pre></div></li></ul><blockquote><p><strong>docker build</strong> 根据Dockerfile构建镜像命令</p></blockquote><div class=highlight><pre style=background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-shell data-lang=shell>docker build [选项] URL|PATH

@@ -84,10 +84,10 @@ ok表示断言的结果<span style=color:#a61717;background-color:#e3d2d2>，</s
 </span><span style=color:#228b22></span><span style=color:#8b008b;font-weight:700>type</span> Getter <span style=color:#8b008b;font-weight:700>interface</span> {
 	<span style=color:#008b45>Get</span>(key <span style=color:#00688b;font-weight:700>string</span>) ([]<span style=color:#00688b;font-weight:700>byte</span>, <span style=color:#00688b;font-weight:700>error</span>)
 }
-  
+
 <span style=color:#228b22>// A GetterFunc implements Getter with a function.
 </span><span style=color:#228b22></span><span style=color:#8b008b;font-weight:700>type</span> GetterFunc <span style=color:#8b008b;font-weight:700>func</span>(key <span style=color:#00688b;font-weight:700>string</span>) ([]<span style=color:#00688b;font-weight:700>byte</span>, <span style=color:#00688b;font-weight:700>error</span>)
-  
+
 <span style=color:#228b22>// Get implements Getter interface function
 </span><span style=color:#228b22></span><span style=color:#8b008b;font-weight:700>func</span> (f GetterFunc) <span style=color:#008b45>Get</span>(key <span style=color:#00688b;font-weight:700>string</span>) ([]<span style=color:#00688b;font-weight:700>byte</span>, <span style=color:#00688b;font-weight:700>error</span>) {
 	<span style=color:#8b008b;font-weight:700>return</span> <span style=color:#008b45>f</span>(key)
