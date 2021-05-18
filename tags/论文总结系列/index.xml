@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>serverless on Jesse's Blog</title><link>https://jessestutler.github.io/categories/serverless/</link><description>Recent content in serverless on Jesse's Blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><copyright>本站遵循 CC-BY-NC 4.0 协议</copyright><lastBuildDate>Tue, 18 May 2021 14:45:44 +0800</lastBuildDate><atom:link href="https://jessestutler.github.io/categories/serverless/index.xml" rel="self" type="application/rss+xml"/><item><title>NSDI17 ExCamera</title><link>https://jessestutler.github.io/posts/nsdi17-excamera/</link><pubDate>Tue, 18 May 2021 14:45:44 +0800</pubDate><guid>https://jessestutler.github.io/posts/nsdi17-excamera/</guid><description>NSDI17-ExCamera 这是一篇将video encoding改造到serverless平台上的文章
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>论文总结系列 on Jesse's Blog</title><link>https://jessestutler.github.io/tags/%E8%AE%BA%E6%96%87%E6%80%BB%E7%BB%93%E7%B3%BB%E5%88%97/</link><description>Recent content in 论文总结系列 on Jesse's Blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><copyright>本站遵循 CC-BY-NC 4.0 协议</copyright><lastBuildDate>Tue, 18 May 2021 14:45:44 +0800</lastBuildDate><atom:link href="https://jessestutler.github.io/tags/%E8%AE%BA%E6%96%87%E6%80%BB%E7%BB%93%E7%B3%BB%E5%88%97/index.xml" rel="self" type="application/rss+xml"/><item><title>NSDI17 ExCamera</title><link>https://jessestutler.github.io/posts/nsdi17-excamera/</link><pubDate>Tue, 18 May 2021 14:45:44 +0800</pubDate><guid>https://jessestutler.github.io/posts/nsdi17-excamera/</guid><description>NSDI17-ExCamera 这是一篇将video encoding改造到serverless平台上的文章
 论文链接：https://www.usenix.org/conference/nsdi17/technical-sessions/presentation/fouladi
 mu框架 大致流程 AWS s3 invoke第一个Worker（function实例），然后Worker与Coordinator建立TLS连接并保持（Coordinator通过RPC call来调控Worker的状态，Worker就是一个有限状态机），当Coordinator收到来自Worker的message时，就会根据状态转换逻辑产生新的状态给Worker并发送下一个RPC请求。
 Coorinator是dependency-aware的，他会根据Worker产生的output来指派可以处理这个output的worker，这样就可以顺序执行而不会产生死锁
@@ -65,25 +65,4 @@ tips：local/global message bus都为不同的funciton维护有不同的队列�
 Host Agent Host agent是每台机子上的代理，他负责local message bus和global message bus的合作（比如备份，细节里会细说）；为自己机子上的函数从global message bus存取消息（订阅topic）；孵化容器和fork function
 细节 如何做备份 当function产生message到local message bus当中自己的队列时，会产生一份拷贝给host agent的队列，然后host agent将这份拷贝消息放到global message bus的这个function的队列（或者topic）当中，==作为备份并且打上标签表示完成状态==，host agent会追踪要接收这个消息的下一个function的完成进度，顺利完成会将状态转为finished，处理失败会将状态转为failed并交给另一个机子上的function处理
 workflow流程 假设有两个function完成workflow，一台机子（两个partiton)
-Step1：user request发送给function1，global message bus将消息放到partition1</description></item><item><title>Serverless分析</title><link>https://jessestutler.github.io/posts/serverless%E5%88%86%E6%9E%90/</link><pubDate>Tue, 18 May 2021 14:13:36 +0800</pubDate><guid>https://jessestutler.github.io/posts/serverless%E5%88%86%E6%9E%90/</guid><description>Serverless分析 本文根据Berkeley rise lab的综述Cloud Programming Simplifified:
-A Berkeley View on Serverless Computing并结合其他相关材料进行总结，探究serverless的研究点，本文会持续进行更新。
-简单的说，Serverless就是FaaS+BaaS
-特点 按使用量付费（无请求时无资源无分配无花费，有请求时按使用量，按时间计算付费），性能提高（高并发量），autoscale，强隔离性（多租户），可供有突发流量情况而又无服务器扩展需求的公司使用；
-低请求量服务改造：原先需要一直监听请求的应用，当无请求来时需要一直占用资源，而改造成serverless可以用function代替原先的应用，这样无请求来临时可以down to zero，有请求来时再invoke一个或多个function实例（而且这些function是可以并行的）并进行处理；（不仅是针对可以减少资源使用量，而且可以应对流量尖峰）
-由外部服务触发比如S3（有object更新，比如新增图片），消息队列（事件驱动，收到事件），或者以API gateway的形式（可以是以Backend或以function的形式）等待HTTP request到来触发
-一定是stateless，无法保证写到memory或者local disk的数据（VM上）下次被invoked还能读到，需要借助外部存储服务来保存状态或数据
-适合short-lived task
-从serverful过渡到serverless就像从汇编语言过渡到高级语言一样，汇编语言计算一个c=a+b需要指定寄存器，存放，计算结果然后并存回，而serverful就像汇编语言一样需要先知道哪些资源是可用的，然后给资源加载code和环境，执行计算，再得到结果，这些原先需要平台使用者去知晓，但是serverless不需要programmer去知晓和管理资源，只需要编写code，编写function，编写业务就够了
-现今Serverless的有限性 存储对于细粒度操作的局限性 因为function之间是相互隔离的，所以需要借助外部存储服务(BaaS)来提供状态的支持，这是serverless的特性所致。但是对于划分到function这么细粒度的操作来说，现在的外部存储服务要不是太贵（access或者storage）要不就是延迟太高，e.g:对象存储比如AWS S3等，access花费和延迟过高；key-value数据库存储费用高，扩容慢；内存存储如redis等没有容错性，不能自动扩缩。当然这要看应用的要求，但还是与serverless理想的存储方案相差不少。
-缺少细粒度的消息沟通 背景：两个task合作，taskA需要taskB的output作为input，但是不知道何时output会过来，所以需要引入消息中间件，但是现有的消息中间件对于细粒度(task/function)操作的延迟和花费太高
-可能的解决方案：自己设计消息通知机制比如长期运行一个汇集消息的server，能够以命名的方式直接定位到function实例从而获取到ouput等
-标准沟通模式对于细粒度的性能太差 背景：broadcast，shuffle，aggregation都是分布式系统中重要的原语，但是如果划分粒度过细，比如拿聚合来说，VM实例中的function如果本地不做聚合而每次聚合都需要到远端聚合，那么这个消息数量会成倍增加，shuffle则更多
-冷启动的局限性 1）启动function需要一定时间（分配和加载资源：分配VM，初始化container，将function的静态文件拷贝到container）
-2）需要一些时间去下载函数执行环境（OS，库，语言的runtime比如JVM等）
-函数的package依赖需要经过远端的download，local install，import过程，这个时间比较长，是否可以在本地machine上预先下载好所有语言涉及的包？（通过压缩的方式存储）这样直接去本地加载package，省去去远端下载package的时间。所有container通过overlayfs或者bind mount共享已经安装好的package
-SOCK：利用Zygote机制预import一些需要的package（这样的Zygote很多，需要预import什么package就fork出新的Zygote），这样从Zygote进程fork出的新子进程不需要进行同样的初始化操作，直接从内存读取即可（减少开辟新内存的消耗）
-tips：fork出的子进程与父进程共享堆栈，fd，代码段，由于copy-on-write，只有子进程写时才会完全拷贝
-含Zygote进程的container&amp;ndash;&amp;gt;含从Zygote fork出的子进程的container
-3）有些应用对于代码需要做一些定制的初始化操作，需要花费一定时间（比如加载和初始化数据结构，库等）
-4）如果需要频繁冷启动，namespace的频繁creation和cleanup需要性能损耗
-什么时候冷启动会发生？ 当function的code或者配置改变的时候，或者function第一次部署的时候 idle instance被shut down instance到了最大age被shut down（即使仍然在运行） 之前的instance都在忙于处理请求，需要横向扩展的时候 什么时候需要考虑冷启动的影响？ 也许像要访问存储服务的function本来就需要等待存取的latency，冷启动时间相对这段latency可有可无；也许实时数据流服务会频繁地invoke function，function会一直处理event很多次（可能200000次在到达最大age之前），那冷启动时间也可有可无。</description></item></channel></rss>
+Step1：user request发送给function1，global message bus将消息放到partition1</description></item></channel></rss>

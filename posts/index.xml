@@ -1,4 +1,71 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Posts on Jesse's Blog</title><link>https://jessestutler.github.io/posts/</link><description>Recent content in Posts on Jesse's Blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><copyright>本站遵循 CC-BY-NC 4.0 协议</copyright><lastBuildDate>Tue, 18 May 2021 14:13:36 +0800</lastBuildDate><atom:link href="https://jessestutler.github.io/posts/index.xml" rel="self" type="application/rss+xml"/><item><title>Serverless分析</title><link>https://jessestutler.github.io/posts/serverless%E5%88%86%E6%9E%90/</link><pubDate>Tue, 18 May 2021 14:13:36 +0800</pubDate><guid>https://jessestutler.github.io/posts/serverless%E5%88%86%E6%9E%90/</guid><description>Serverless分析 本文根据Berkeley rise lab的综述Cloud Programming Simplifified:
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Posts on Jesse's Blog</title><link>https://jessestutler.github.io/posts/</link><description>Recent content in Posts on Jesse's Blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><copyright>本站遵循 CC-BY-NC 4.0 协议</copyright><lastBuildDate>Tue, 18 May 2021 14:45:44 +0800</lastBuildDate><atom:link href="https://jessestutler.github.io/posts/index.xml" rel="self" type="application/rss+xml"/><item><title>NSDI17 ExCamera</title><link>https://jessestutler.github.io/posts/nsdi17-excamera/</link><pubDate>Tue, 18 May 2021 14:45:44 +0800</pubDate><guid>https://jessestutler.github.io/posts/nsdi17-excamera/</guid><description>NSDI17-ExCamera 这是一篇将video encoding改造到serverless平台上的文章
+论文链接：https://www.usenix.org/conference/nsdi17/technical-sessions/presentation/fouladi
+mu框架 大致流程 AWS s3 invoke第一个Worker（function实例），然后Worker与Coordinator建立TLS连接并保持（Coordinator通过RPC call来调控Worker的状态，Worker就是一个有限状态机），当Coordinator收到来自Worker的message时，就会根据状态转换逻辑产生新的状态给Worker并发送下一个RPC请求。
+Coorinator是dependency-aware的，他会根据Worker产生的output来指派可以处理这个output的worker，这样就可以顺序执行而不会产生死锁
+出现原因 传统的视频encoding速度太慢，一些实时的视频处理平台需要快速的视频上传业务
+背景知识：我们都知道视频由一帧帧的图片组成，对于将一段视频压缩成比特流来说，有些帧与帧之间，图片的某些部分是重复的，那压缩成比特流就不必重复，encoding过程就是花费cpu时间来寻找帧与帧之间的联系，从而尽可能的压缩输出的比特流大小；但是这样带来的问题就是帧与帧之间会存在依赖关系，从而不能将比特流从中间段进行解码，比如说直播的时候有不同的清晰度，想要切换成更高清的流。现在引入Stream Access Point来切分视频数据流
+借助Stream Access Point技术（将视频数据流进行切分，各段数据流都是独立的，段与段之间的帧没有依赖关系，VP8/VP9使用的是 &amp;ldquo;key frame&amp;quot;概念），可以将各段encoding过程改造成使用相同的function来处理，各段压缩完成之后再进行简单的连接（串行），形成一个完整的视频数据流
+ExCamera encoding流程 （并行）使用vpxenc（谷歌优化的encoder）encode六个帧，都以key frame为开头（也就是使用Stream Access Point分割视频数据流）,这代表一个chunk
+（并行）使用ExCamera设计的encoder将原先vpxenc生成的key frame替换成与前面部分的encoder产生的输出相关联的inter frame（因为key frame会影响压缩速率，所以ExCamera针对此进行了优化）。最后生成的chunk只有一个key frame为开头。
+这step2与step3之间还涉及到很多并行优化步骤，因为涉及到视频encode和decode背景，略过
+（串行）将各个chunk顺序连接起来</description></item><item><title>ATC20——Faasm</title><link>https://jessestutler.github.io/posts/atc20faasm/</link><pubDate>Tue, 18 May 2021 14:43:26 +0800</pubDate><guid>https://jessestutler.github.io/posts/atc20faasm/</guid><description>ATC20——Faasm 这是一篇关于webassembly sandbox的文章
+论文链接：https://www.usenix.org/conference/atc20/presentation/shillaker
+为什么要提出WASM-sandbox（本文是Faaslet)？ 大多数serverless平台使用的是容器承载function，但是对于容器来说，启动开销和过多的memory footprint仍然与serverless场景不太匹配（像边缘场景如果容器是overprovision的，性能会随着资源可用量的减少而下降；而且边缘如果是多租户的，long-running container也不合需求，如果资源不够用了需要频繁的驱逐），而且现有以容器为承载的方案（尽管有提出本地存储来减少访问数据开销的）会产生冗余数据，每个函数都有一份拷贝，而且需要重复的序列化和网络开销。对比docker来说，faaslet能够极大的减少冷启动延迟，减少开销，让一台机器承载更多的sandbox
+Fasslet function和其library，runtime都会编译为WASM；
+cgroup做cpu周期隔离；
+network namespace做Network隔离和提供virtual network interface；
+faaslet以线程运行，共享进程资源；
+部分WASI+部分POSIX实现（图中Host interface）做system calls，因为WASI是基于compability-based security的，所以对于资源的访问是通过不可伪造的句柄来保存引用的
+两层状态共享机制 local状态共享就是多个faaslet（多个线程）共享父进程的同一块内存区域，global负责集群内状态的同步
+faaslet快照 预初始化faaslet并做成快照，可以减少冷启动时间和各种开销</description></item><item><title>ATC18——容器优化方案SOCK</title><link>https://jessestutler.github.io/posts/atc18%E5%AE%B9%E5%99%A8%E4%BC%98%E5%8C%96%E6%96%B9%E6%A1%88sock/</link><pubDate>Tue, 18 May 2021 14:41:22 +0800</pubDate><guid>https://jessestutler.github.io/posts/atc18%E5%AE%B9%E5%99%A8%E4%BC%98%E5%8C%96%E6%96%B9%E6%A1%88sock/</guid><description>ATC18——容器优化方案SOCK 这是一篇优化容器冷启动的文章
+论文链接：https://www.usenix.org/conference/atc18/presentation/oakes
+解构container（docker瓶颈） Bind mount可能比AUFS（或overlay）性能更好 频繁的container创建和删除（涉及到频繁的namespace的创建和删除，可能会有性能瓶颈，比如network namespace，并发的creation和cleanup越多延迟越高），是不是可以把一些不必要的namespace隔离给剔除或者进行一些优化（disable创建或删除时不必要的影响性能的功能） 频繁的创建和删除cgroup不如reuse cgroup，比如维护一个初始化好的cgroup池 当host上挂载的越多，mount namespace拷贝的速度就越慢，简单的做法可以考虑使用chroot SOCK优化方案 Lean containers:
+用bind mount代替overlay，分四层：系统层（base），package层（read-only，用来package caching），code层（lambda代码），scratch层（就是container layer，可写层） 用cgroup pool来分配在container创建时分配cgroup，container删除时重新回到池中 将mount namespace和network namespace省去，其瓶颈在docker瓶颈中已提到 Zygote机制：
+Zygote container就是一些已经预import需要的package的容器，内含Zygote进程，这样从这个进程fork出的新进程（子进程）并创建出的新容器不需要做重复性的初始化工作，直接从内存读相同的内容就好了，也就是：
+含Zygote进程的container&amp;ndash;&amp;gt;含从Zygote fork出的子进程的container
+三级缓存：
+handler cache：
+将idle instance pause，不消耗cpu但是消耗内存，之后再有request过来unpause是比新创建一个container快的（warm start）
+install cache：
+lean containers中的package层，read-only且被所有container共享
+import cache:
+就是Zygote机制，但是命中和驱逐机制需要定制。命中可能与传统cache不同，存在多命中的情况（handler需要的包可能既在tree cache中的子节点也可能是父节点），这时需要找到最合适的entry（也就是Zygote进程）；驱逐因为Zygote进程会都有相同的包而存在共享内存的情况所以比较复杂</description></item><item><title>ATC18——窥探Serverless平台</title><link>https://jessestutler.github.io/posts/atc18%E7%AA%A5%E6%8E%A2serverless%E5%B9%B3%E5%8F%B0/</link><pubDate>Tue, 18 May 2021 14:31:18 +0800</pubDate><guid>https://jessestutler.github.io/posts/atc18%E7%AA%A5%E6%8E%A2serverless%E5%B9%B3%E5%8F%B0/</guid><description>ATC18——窥探serverless平台 这是一篇利用逆向工程测试Serverless平台的文章
+论文链接：https://www.usenix.org/conference/atc18/presentation/wang-liang
+QA Q:隔离的减少会导致I/O，networking，coldstart等表现的下降？
+A:是的。如果VM中有多个instance实例会造成资源争夺的现象（见衡量指标中的I/O &amp;amp; network throughput）
+Q:同一VM是运行多个function instance吗？
+A：是。AWS可以通过I/O测试发现多个function instance共享/proc中的文件
+Q:不同租户的function实例可以放到同一VM里吗？
+A：可以但并没有平台采用（安全隔离性会有问题:side channel attack）
+Q:idle instance（暂无请求的实例，但是不会收用户费用）是要退出并收回资源还是再利用（先放到池里）处理后续的请求？
+https://aws.amazon.com/cn/blogs/compute/container-reuse-in-lambda/
+A:这个问题值得考量。一方面，idle instance会一直占用VM的资源；而另一方面，如果有突发的请求又可以减少instance的冷启动时间。所以折中来说，AWS采用的是将一个函数的一半的instance每300s停掉并回收资源，剩下的instance运行直到一个最大idle time为止。
+Q:多个request会被同个instance接收吗？
+A：会。Google针对负载过多的话会开新实例
+Q:function update是开新实例吗，还是在旧实例的基础上改？
+A：开新实例，负载会从旧实例慢慢过渡到新实例，但是有一个时间差
+衡量指标 Cold-start latency（&amp;amp; warm start latency）
+这里代表的是function的冷启动时间（AWS使用了VM池在function启动之前就准备接收function的调度，这样基本上只受scheduling latency的影响）
+warm start指function在执行完之后，暂时“冻住”，为不久后再有请求而“解冻”并处理
+Function instance lifetime
+即使instance仍然在运行，但是到达一个lifetime也会被terminated，租户如果想用一个function维护in-memory state的话肯定想让这个instance运行地更久一点
+AWS instance lifetime中位数为6.2小时
+Maximum idle time before shut down
+I/O &amp;amp; network throughput
+当VM中的function实例越多，每个function的I/O和network吞吐量会越小，而且会受到function分配到的内存的影响，function占用的内存越大，吞吐量越高。所以，存在一个VM多instance的资源争用问题
+CPU usage（AWS是根据code的预配置memory量来分配cpu周期，memory量越多CPU周期越多，这样冷启动的时间也会减少越多，而且公平）
+Memory usage</description></item><item><title>ATC18——高性能workflowSAND</title><link>https://jessestutler.github.io/posts/atc18%E9%AB%98%E6%80%A7%E8%83%BDworkflowsand/</link><pubDate>Tue, 18 May 2021 14:28:02 +0800</pubDate><guid>https://jessestutler.github.io/posts/atc18%E9%AB%98%E6%80%A7%E8%83%BDworkflowsand/</guid><description>ATC18——高性能workflow SAND 这是一篇关于优化serverless workflow的文章
+论文下载链接：https://www.usenix.org/conference/atc18/presentation/akkus
+Sandbox 同属于同一个workflow的function属于一个application，一个application一个container，而不是一个function一个container
+但是有可能会引入资源竞争问题？
+当有request到来时，==通过fork function实例来快速水平扩展==（实验证明，fork是最快的，比直接执行二进制文件创建进程都要快），而不是频繁的冷启动一个不同的container。而且，同一个function的不同实例（也就是进程）可以共享内存，库只要加载一次就够了，相比另起一个container的内存占用量，内存占用量少很多。function执行完之后可以回收资源，等有请求来了再fork新实例，相比为了解决负载尖峰而一直保持container idle占用资源，可以避免资源一直被占用。
+Message Bus SAND使用了一个机制：同一台host中的function通过local message bus来沟通，不同host中的function通过global message bus来沟通，而且global message bus可以保存local message bus中的消息作为备份（用来容错）
+tips：local/global message bus都为不同的funciton维护有不同的队列（或者topic），global像kafka这种实现有partition做容错，host agent订阅global message bus，本地function订阅local message bus。而且message bus不直接传递data，而是传递数据的引用（比如local可以通过in-memory的key-value存储，来快速获取数据，global可以通过分布式存储来获取数据），不仅存取数据快，这样检查状态和回滚也方便。
+鉴于现有的serverless平台中的workflow沟通机制，即使两个function在同一台机子当中，也是要通过外部消息队列服务来存取的，这引入了极大的延迟，local message bus能够削减这段延迟时间
+Host Agent Host agent是每台机子上的代理，他负责local message bus和global message bus的合作（比如备份，细节里会细说）；为自己机子上的函数从global message bus存取消息（订阅topic）；孵化容器和fork function
+细节 如何做备份 当function产生message到local message bus当中自己的队列时，会产生一份拷贝给host agent的队列，然后host agent将这份拷贝消息放到global message bus的这个function的队列（或者topic）当中，==作为备份并且打上标签表示完成状态==，host agent会追踪要接收这个消息的下一个function的完成进度，顺利完成会将状态转为finished，处理失败会将状态转为failed并交给另一个机子上的function处理
+workflow流程 假设有两个function完成workflow，一台机子（两个partiton)
+Step1：user request发送给function1，global message bus将消息放到partition1</description></item><item><title>Serverless分析</title><link>https://jessestutler.github.io/posts/serverless%E5%88%86%E6%9E%90/</link><pubDate>Tue, 18 May 2021 14:13:36 +0800</pubDate><guid>https://jessestutler.github.io/posts/serverless%E5%88%86%E6%9E%90/</guid><description>Serverless分析 本文根据Berkeley rise lab的综述Cloud Programming Simplifified:
 A Berkeley View on Serverless Computing并结合其他相关材料进行总结，探究serverless的研究点，本文会持续进行更新。
 简单的说，Serverless就是FaaS+BaaS
 特点 按使用量付费（无请求时无资源无分配无花费，有请求时按使用量，按时间计算付费），性能提高（高并发量），autoscale，强隔离性（多租户），可供有突发流量情况而又无服务器扩展需求的公司使用；
