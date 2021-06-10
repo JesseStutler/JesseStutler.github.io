@@ -1,4 +1,26 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>k8s on Jesse's Blog</title><link>https://jessestutler.github.io/tags/k8s/</link><description>Recent content in k8s on Jesse's Blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><copyright>本站遵循 CC-BY-NC 4.0 协议</copyright><lastBuildDate>Sun, 07 Mar 2021 10:30:17 +0800</lastBuildDate><atom:link href="https://jessestutler.github.io/tags/k8s/index.xml" rel="self" type="application/rss+xml"/><item><title>kubectl常用命令</title><link>https://jessestutler.github.io/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/</link><pubDate>Sun, 07 Mar 2021 10:30:17 +0800</pubDate><guid>https://jessestutler.github.io/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/</guid><description>k8s命令 引言 本文列举了一些kubectl的常用命令以及其对应的常用参数
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>k8s on Jesse's Blog</title><link>https://jessestutler.github.io/tags/k8s/</link><description>Recent content in k8s on Jesse's Blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><copyright>本站遵循 CC-BY-NC 4.0 协议</copyright><lastBuildDate>Thu, 10 Jun 2021 14:51:48 +0800</lastBuildDate><atom:link href="https://jessestutler.github.io/tags/k8s/index.xml" rel="self" type="application/rss+xml"/><item><title>K8s Iptables分析</title><link>https://jessestutler.github.io/posts/k8s-iptables%E5%88%86%E6%9E%90/</link><pubDate>Thu, 10 Jun 2021 14:51:48 +0800</pubDate><guid>https://jessestutler.github.io/posts/k8s-iptables%E5%88%86%E6%9E%90/</guid><description>K8s iptables分析 笔者最近因为需要看了下k8s的kube-proxy在默认iptables模式下对于iptables规则是如何管理的，以此作为记录并分享，后面会继续跟进kube-proxy并进行源码分析
+这里笔者分享一套还不错的iptables学习路线：
+https://www.zsythink.net/archives/category/%e8%bf%90%e7%bb%b4%e7%9b%b8%e5%85%b3/iptables
+iptables知识 查 -t [表名] 指定想查看的表的规则，默认为filter表
+-L [链名] 指定想查看的某个表在某个链当中的规则，不写链列出表在所有链当中的规则
+-v 列出详细规则
+-n 不做域名解析，直接显示ip（通常-nvL同行）
+&amp;ndash;line-number 显示行数
+e.g:
+iptables -t nat -L INPUT
+列出nat表在INPUT链中的所有规则
+增 -I [链名] 插入规则到指定的链当中（在链的首部插入）
+-I [链名] [序号] 插入规则到指定的链当中（指定是链的第几条规则）
+-A [链名] 插入规则到指定的链当中（在链的尾部插入）
+-s [源地址,[源地址]&amp;hellip;] 或[源地址网段]
+-d [目标地址]
+用!在-s或-d前表示取反，非地址匹配
+&amp;ndash;sport 源端口
+&amp;ndash;dport 目标端口
+&amp;ndash;sport/dport [起始端口:结束端口] 表示匹配此范围内端口
+指定源端口和目标端口为扩展匹配条件，-m用来指定扩展模块，如-m tcp -dport 22表示匹配ssh，若不指定-m（最好指定），默认与-p指定的协议相同
+-m [模块] 使用模块扩展匹配条件
+离散端口： -m multiport --dports 22,53,80 需要指定multiport模块用来离散匹配 范围ip： -m iprange --src-range 192.</description></item><item><title>kubectl常用命令</title><link>https://jessestutler.github.io/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/</link><pubDate>Sun, 07 Mar 2021 10:30:17 +0800</pubDate><guid>https://jessestutler.github.io/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/</guid><description>k8s命令 引言 本文列举了一些kubectl的常用命令以及其对应的常用参数
 kubectl的详细信息可参照：https://kubernetes.io/docs/reference/kubectl/overview/
 如果熟悉了kubectl的朋友，对于经常性的kubectl get 和kubectl describe查找resource感到繁琐，笔者在这里推荐一款开源的增强型kubectl软件k9s：https://github.com/derailed/k9s，相信对于vim熟悉的朋友会喜欢这款开源软件，而且可以当简略的dashboard使用
 kubectl kubectl create -f [yaml或者json文件]

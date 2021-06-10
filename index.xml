@@ -1,4 +1,209 @@
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Jesse's Blog</title><link>https://jessestutler.github.io/</link><description>Recent content on Jesse's Blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><copyright>本站遵循 CC-BY-NC 4.0 协议</copyright><lastBuildDate>Tue, 18 May 2021 14:45:44 +0800</lastBuildDate><atom:link href="https://jessestutler.github.io/index.xml" rel="self" type="application/rss+xml"/><item><title>NSDI17 ExCamera</title><link>https://jessestutler.github.io/posts/nsdi17-excamera/</link><pubDate>Tue, 18 May 2021 14:45:44 +0800</pubDate><guid>https://jessestutler.github.io/posts/nsdi17-excamera/</guid><description>Jesse's Blog https://jessestutler.github.io/posts/nsdi17-excamera/ -&lt;h1 id="nsdi17-excamera">NSDI17-ExCamera&lt;/h1>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Jesse's Blog</title><link>https://jessestutler.github.io/</link><description>Recent content on Jesse's Blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><copyright>本站遵循 CC-BY-NC 4.0 协议</copyright><lastBuildDate>Thu, 10 Jun 2021 14:51:48 +0800</lastBuildDate><atom:link href="https://jessestutler.github.io/index.xml" rel="self" type="application/rss+xml"/><item><title>K8s Iptables分析</title><link>https://jessestutler.github.io/posts/k8s-iptables%E5%88%86%E6%9E%90/</link><pubDate>Thu, 10 Jun 2021 14:51:48 +0800</pubDate><guid>https://jessestutler.github.io/posts/k8s-iptables%E5%88%86%E6%9E%90/</guid><description>Jesse's Blog https://jessestutler.github.io/posts/k8s-iptables%E5%88%86%E6%9E%90/ -&lt;h1 id="k8s-iptables分析">K8s iptables分析&lt;/h1>
+&lt;p>笔者最近因为需要看了下k8s的kube-proxy在默认iptables模式下对于iptables规则是如何管理的，以此作为记录并分享，后面会继续跟进kube-proxy并进行源码分析&lt;/p>
+&lt;p>这里笔者分享一套还不错的iptables学习路线：&lt;/p>
+&lt;p>&lt;a href="https://www.zsythink.net/archives/category/%e8%bf%90%e7%bb%b4%e7%9b%b8%e5%85%b3/iptables">https://www.zsythink.net/archives/category/%e8%bf%90%e7%bb%b4%e7%9b%b8%e5%85%b3/iptables&lt;/a>&lt;/p>
+&lt;h2 id="iptables知识">iptables知识&lt;/h2>
+&lt;h3 id="查">查&lt;/h3>
+&lt;p>-t [表名] 指定想查看的表的规则，默认为filter表&lt;/p>
+&lt;p>-L [链名] 指定想查看的某个表在某个链当中的规则，不写链列出表在所有链当中的规则&lt;/p>
+&lt;p>-v 列出详细规则&lt;/p>
+&lt;p>-n 不做域名解析，直接显示ip（通常-nvL同行）&lt;/p>
+&lt;p>&amp;ndash;line-number 显示行数&lt;/p>
+&lt;p>e.g:&lt;/p>
+&lt;p>&lt;code>iptables -t nat -L INPUT&lt;/code>&lt;/p>
+&lt;p>列出nat表在INPUT链中的所有规则&lt;/p>
+&lt;h3 id="增">增&lt;/h3>
+&lt;p>-I [链名] 插入规则到指定的链当中（&lt;strong>在链的首部插入&lt;/strong>）&lt;/p>
+&lt;p>-I [链名] [序号] 插入规则到指定的链当中（&lt;strong>指定是链的第几条规则&lt;/strong>）&lt;/p>
+&lt;p>-A [链名] 插入规则到指定的链当中（&lt;strong>在链的尾部插入&lt;/strong>）&lt;/p>
+&lt;p>-s [源地址,[源地址]&amp;hellip;] 或[源地址网段]&lt;/p>
+&lt;p>-d [目标地址]&lt;/p>
+&lt;blockquote>
+&lt;p>用&lt;code>!&lt;/code>在-s或-d前表示取反，非地址匹配&lt;/p>
+&lt;/blockquote>
+&lt;p>&amp;ndash;sport 源端口&lt;/p>
+&lt;p>&amp;ndash;dport 目标端口&lt;/p>
+&lt;p>&amp;ndash;sport/dport [起始端口:结束端口] 表示匹配此范围内端口&lt;/p>
+&lt;blockquote>
+&lt;p>指定源端口和目标端口为扩展匹配条件，-m用来指定扩展模块，如-m tcp -dport 22表示匹配ssh，若不指定-m（最好指定），默认与-p指定的协议相同&lt;/p>
+&lt;/blockquote>
+&lt;p>-m [模块] 使用模块扩展匹配条件&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">离散端口：
+-m multiport --dports 22,53,80
+需要指定multiport模块用来离散匹配
+范围ip：
+-m iprange --src-range 192.168.0.211-192.168.0.220
+加备注：
+-m comment --comment [...]
+&lt;/code>&lt;/pre>&lt;/div>&lt;p>-p [协议]&lt;/p>
+&lt;p>-i [流入网卡]&lt;/p>
+&lt;p>-o [流出网卡]&lt;/p>
+&lt;p>-j [target] target可以是动作，如DROP,ACCEPT,REJECT等 ；也可以是自定义链，将系统链和自定义链关联起来进行进一步的匹配&lt;/p>
+&lt;p>-N [自定义链名] 创建自定义链，将指定规则放到自定义链中方便管理，防止某条系统链过长比较难找，k8s很多都是自定义链&lt;/p>
+&lt;p>&lt;strong>在系统链当中定义规则，并指明-j 自定义链名即可将自定义链引用到系统链上，如果规则匹配，就会到自定义链上进行进一步的匹配，如果不指定-j光定义自定义链是不会产生效果的&lt;/strong>&lt;/p>
+&lt;h3 id="删">删&lt;/h3>
+&lt;ul>
+&lt;li>-D [链名] [序号] 删除链的第几条规则（可用&amp;ndash;line-number先查看链的序号）&lt;/li>
+&lt;/ul>
+&lt;p>或不指定序号，而是根据规则来匹配&lt;/p>
+&lt;p>e.g:&lt;/p>
+&lt;p>&lt;code>iptables -D INPUT -s 192.168.0.211 -j ACCEPT&lt;/code>&lt;/p>
+&lt;p>删除INPUT中filter表的（不指定-t默认为filter）源地址为192.168.0.211，target为ACCEPT的规则&lt;/p>
+&lt;ul>
+&lt;li>-F [链名] 删除某条链的所有规则&lt;/li>
+&lt;/ul>
+&lt;p>e.g:&lt;/p>
+&lt;p>&lt;code>iptables -t 表名 -F 链名&lt;/code>&lt;/p>
+&lt;p>删除指定表中某条链中的所有规则&lt;/p>
+&lt;ul>
+&lt;li>-X [自定义链名] 删除自定义需要满足以下规则：&lt;/li>
+&lt;/ul>
+&lt;ol>
+&lt;li>
+&lt;p>自定义链没有被任何默认链引用，即自定义链的引用计数为0。&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>自定义链中没有任何规则，即自定义链为空。&lt;/p>
+&lt;/li>
+&lt;/ol>
+&lt;h3 id="改">改&lt;/h3>
+&lt;ul>
+&lt;li>-P [链名] [target] 修改制定链的默认规则&lt;/li>
+&lt;/ul>
+&lt;blockquote>
+&lt;p>iptables黑名单即链的默认规则为ACCEPT，而定义DROP或REJECT规则，白名单即反过来&lt;/p>
+&lt;/blockquote>
+&lt;ul>
+&lt;li>
+&lt;p>-R [链名] [序号] 修改链中制定第几条规则（有坑，需要匹配写明所有原匹配规则，所以不如删了原来的规则再加一条）&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>-E [原链名] [新链名] 将原自定义链名改为新链名&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h3 id="保存规则">保存规则&lt;/h3>
+&lt;ul>
+&lt;li>
+&lt;p>第一种&lt;/p>
+&lt;p>&lt;code>service iptables save&lt;/code>&lt;/p>
+&lt;p>只要没保存，就可以通过&lt;code>service iptables restart&lt;/code>恢复&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>第二种&lt;/p>
+&lt;p>&lt;code>iptables-save &amp;gt; /etc/sysconfig/iptables&lt;/code>&lt;/p>
+&lt;p>&lt;code>iptables-restore &amp;lt; /etc/sysconfig/iptables&lt;/code>&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h3 id="nat">NAT&lt;/h3>
+&lt;p>&lt;a href="https://www.zsythink.net/archives/1764">https://www.zsythink.net/archives/1764&lt;/a>&lt;/p>
+&lt;h4 id="snat">SNAT&lt;/h4>
+&lt;p>-j SNAT &amp;ndash;to-source [ip] 将源ip进行转换&lt;/p>
+&lt;p>一般放在POSTROUTING链当中&lt;/p>
+&lt;p>也可以放在INPUT链当中&lt;/p>
+&lt;h4 id="dnat">DNAT&lt;/h4>
+&lt;p>-j DNAT &amp;ndash;to-destination [ip:port] 将目标ip进行转换&lt;/p>
+&lt;p>一般放在PREROUTING链当中&lt;/p>
+&lt;p>也可以放在OUTPUT链当中&lt;/p>
+&lt;h4 id="masquerade">MASQUERADE&lt;/h4>
+&lt;p>类似SNAT，只不过SNAT需要指定转换ip，MASQUERADE可以指定-o流出网卡，根据流出网卡的ip自动配置转换ip，应对转换ip变动的情况&lt;/p>
+&lt;h4 id="redirect">REDIRECT&lt;/h4>
+&lt;p>-j REDIRECT &amp;ndash;to-ports&lt;/p>
+&lt;p>端口重定向&lt;/p>
+&lt;p>REDIRECT规则只能定义在PREROUTING链或者OUTPUT链中&lt;/p>
+&lt;h2 id="kubernetes-iptables分析">Kubernetes iptables分析&lt;/h2>
+&lt;h3 id="iptables解析">Iptables解析&lt;/h3>
+&lt;ul>
+&lt;li>
+&lt;p>Cluster-IP实际上就是做了个cluster-ip到对应pod的endpoint的DNAT转换&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>非本机访问pod：&lt;/p>
+&lt;p>PREROUTING &amp;ndash;&amp;gt; KUBE-SERVICE &amp;ndash;&amp;gt; KUBE-SVC-XXX &amp;ndash;&amp;gt; KUBE-SEP-XXX&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>本机访问pod：&lt;/p>
+&lt;p>OUTPUT &amp;ndash;&amp;gt; KUBE-SERVICE &amp;ndash;&amp;gt; KUBE-SVC-XXX &amp;ndash;&amp;gt; KUBE-SEP-XXX&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;p>到具体某个pod的查看链过程：&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">iptables -t nat -nvL OUPUT（或者PREROUTING)
+iptables -t nat -nvL KUBE-SERVICES
+&lt;span style="color:#228b22">#SVC规则全在KUBE-SERVICES链当中&lt;/span>
+&lt;span style="color:#228b22">#以Load Balancer服务为例，含三条iptables链：KUBE-MARK-MASQ,KUBE-SVC-P24HJGZOUZD6OJJ7(svc hash值),KUBE-FW-P24HJGZOUZD6OJJ7&lt;/span>
+&lt;span style="color:#228b22">#查看cluster-ip链规则，-d指定了cluster-ip，其中定义了各pod链，命中率按概率算&lt;/span>
+iptables -t nat -nvL KUBE-SVC-P24HJGZOUZD6OJJ7
+&lt;span style="color:#228b22">#查看具体某个pod链规则，其中包含DNAT转换，转换到具体某个endpoint&lt;/span>
+iptables -t nat -nvL KUBE-SEP-L4YOSO3ZOS4HVO5N
+&lt;span style="color:#b452cd">0&lt;/span> &lt;span style="color:#b452cd">0&lt;/span> DNAT tcp -- * * 0.0.0.0/0 0.0.0.0/0 /* default/echo-load-balance: */ tcp to:10.244.2.162:8080
+&lt;/code>&lt;/pre>&lt;/div>&lt;p>出node的查看链过程：&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">iptables -t nat -nvL KUBE-MARK-MASQ
+&lt;span style="color:#228b22">#上面提到的KUBE-MARK-MASQ链，是在OUTPUT过程中给出node的流量打上标签的，用于在后面POSTROUTING做SNAT转换&lt;/span>
+iptables -t nat -nvL POSTROUTING
+iptables -t nat -nvL KUBE-POSTROUTING
+&lt;span style="color:#228b22">#KUBE-POSTROUTING中规则如下：&lt;/span>
+Chain KUBE-POSTROUTING (&lt;span style="color:#b452cd">1&lt;/span> references)
+pkts bytes target prot opt in out &lt;span style="color:#658b00">source&lt;/span> destination
+&lt;span style="color:#b452cd">17&lt;/span> &lt;span style="color:#b452cd">1020&lt;/span> MASQUERADE all -- * * 0.0.0.0/0 0.0.0.0/0 /* kubernetes service traffic requiring SNAT */ mark match 0x4000/0x4000
+&lt;span style="color:#228b22">#表示匹配打上了0x4000标签的流量，即KUBE-MARK-MASQ中打上的，做SNAT动态转换，将pod ip转换成node ip发往其他node&lt;/span>
+&lt;/code>&lt;/pre>&lt;/div>&lt;p>DNAT和SNAT转换过程：&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">&lt;span style="color:#228b22">#比如在一台ip为10.0.0.40的机子上，访问cluster ip为10.111.107.12,其中一个pod的endpoint为10.244.2.162:8080，10.244.0.0为flannel.1的ip（因为由flannel.1发出）&lt;/span>
+10.0.0.40:xxx ——&amp;gt; 10.111.107.12
+|
+| DNAT
+V
+10.0.0.40:xxx ——&amp;gt; 10.244.2.162:8080
+|
+| SNAT
+V
+10.244.0.0:xxx ——&amp;gt; 10.244.2.162:8080
+&lt;/code>&lt;/pre>&lt;/div>&lt;/li>
+&lt;li>
+&lt;p>NodePort&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>非本机访问：&lt;/p>
+&lt;p>PREROUTING &amp;ndash;&amp;gt; KUBE-SERVICE &amp;ndash;&amp;gt; KUBE-NODEPORTS &amp;ndash;&amp;gt; KUBE-SVC-XXX &amp;ndash;&amp;gt; KUBE-SEP-XXX&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>本机访问：&lt;/p>
+&lt;p>OUTPUT &amp;ndash;&amp;gt; KUBE-SERVICE &amp;ndash;&amp;gt; KUBE-NODEPORTS &amp;ndash;&amp;gt; KUBE-SVC-XXX &amp;ndash;&amp;gt; KUBE-SEP-XXX&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;p>NodePort在KUBE-SERVICES链中最后一条规则，如果&amp;ndash;dst-type为LOCAL，即node ip，则匹配&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-s" data-lang="s">&lt;span style="color:#b452cd">126&lt;/span>K &lt;span style="color:#b452cd">16&lt;/span>M KUBE-NODEPORTS all -- * * &lt;span style="color:#b452cd">0.0.0.0&lt;/span>/&lt;span style="color:#b452cd">0&lt;/span> &lt;span style="color:#b452cd">0.0.0.0&lt;/span>/&lt;span style="color:#b452cd">0&lt;/span> /* kubernetes service nodeports; NOTE: this must be the last rule in this chain */ ADDRTYPE match dst-type LOCAL
+&lt;/code>&lt;/pre>&lt;/div>&lt;p>查看KUBE-NODEPORTS链：&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">iptables -t nat -nvL KUBE-NODEPORTS
+&lt;span style="color:#228b22">#第一条用来打标签，第二条用来转到cluster-ip链规则来做DNAT转换&lt;/span>
+&lt;span style="color:#b452cd">0&lt;/span> &lt;span style="color:#b452cd">0&lt;/span> KUBE-MARK-MASQ tcp -- * * 0.0.0.0/0 0.0.0.0/0 /* default/echo-load-balance: */ tcp dpt:32591
+&lt;span style="color:#b452cd">0&lt;/span> &lt;span style="color:#b452cd">0&lt;/span> KUBE-SVC-P24HJGZOUZD6OJJ7 tcp -- * * 0.0.0.0/0 0.0.0.0/0 /* default/echo-load-balance: */ tcp dpt:32591
+&lt;/code>&lt;/pre>&lt;/div>&lt;p>DNAT和SNAT转换过程：&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">&lt;span style="color:#228b22">#比如在一台ip为10.0.0.40的机子上，访问NodePort,端口为32591,其中一个pod的endpoint为10.244.2.162:8080，10.244.0.0为flannel.1的ip（因为由flannel.1发出）&lt;/span>
+10.0.0.40:xxx ——&amp;gt; 10.0.0.40:32591
+|
+| DNAT
+V
+10.0.0.40:xxx ——&amp;gt; 10.244.2.162:8080
+|
+| SNAT
+V
+10.244.0.0:xxx ——&amp;gt; 10.244.2.162:8080
+&lt;/code>&lt;/pre>&lt;/div>&lt;p>&lt;img src="https://res.cloudinary.com/stackrox/v1578619751/kube-networking-5_zswvwp.svg" alt="img">&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>Load Balancer：&lt;/p>
+&lt;p>Load Balancer会有KUBE-FW-XXX链在KUBE-SERVICES链中定义，用来匹配Load Balancer external ip，如果命中，会有三条规则，第二条导向Cluster-IP：&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">&lt;span style="color:#b452cd">0&lt;/span> &lt;span style="color:#b452cd">0&lt;/span> KUBE-MARK-MASQ all -- * * 0.0.0.0/0 0.0.0.0/0 /* default/echo-load-balance: loadbalancer IP */
+&lt;span style="color:#b452cd">0&lt;/span> &lt;span style="color:#b452cd">0&lt;/span> KUBE-SVC-P24HJGZOUZD6OJJ7 all -- * * 0.0.0.0/0 0.0.0.0/0 /* default/echo-load-balance: loadbalancer IP */
+&lt;span style="color:#b452cd">0&lt;/span> &lt;span style="color:#b452cd">0&lt;/span> KUBE-MARK-DROP all -- * * 0.0.0.0/0 0.0.0.0/0 /* default/echo-load-balance: loadbalancer IP */
+&lt;/code>&lt;/pre>&lt;/div>&lt;p>KUBE-MARK-DROP也和KUBE-MARK-MASQ一样，是用来打标签的，用来应对服务可能没endpoint的情况，打完标签后进入INPUT链或者OUTPUT链的规则当中，匹配KUBE-FIREWALL链，将打上了标签的流量DROP掉&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;h3 id="参考">参考&lt;/h3>
+&lt;p>&lt;a href="https://juejin.cn/post/6844904098605563912">https://juejin.cn/post/6844904098605563912&lt;/a>&lt;/p>
+&lt;p>&lt;a href="https://yuerblog.cc/2019/12/09/k8s-%E6%89%8B%E6%8A%8A%E6%89%8B%E5%88%86%E6%9E%90service%E7%94%9F%E6%88%90%E7%9A%84iptables%E8%A7%84%E5%88%99/">https://yuerblog.cc/2019/12/09/k8s-%E6%89%8B%E6%8A%8A%E6%89%8B%E5%88%86%E6%9E%90service%E7%94%9F%E6%88%90%E7%9A%84iptables%E8%A7%84%E5%88%99/&lt;/a>&lt;/p>
+&lt;p>&lt;a href="https://www.lijiaocn.com/%E9%A1%B9%E7%9B%AE/2017/03/27/Kubernetes-kube-proxy.html">https://www.lijiaocn.com/%E9%A1%B9%E7%9B%AE/2017/03/27/Kubernetes-kube-proxy.html&lt;/a>&lt;/p>
+&lt;p>&lt;a href="https://www.stackrox.com/post/2020/01/kubernetes-networking-demystified/">https://www.stackrox.com/post/2020/01/kubernetes-networking-demystified/&lt;/a>&lt;/p>
+- https://jessestutler.github.io/posts/k8s-iptables%E5%88%86%E6%9E%90/ - 本站遵循 CC-BY-NC 4.0 协议</description></item><item><title>NSDI17 ExCamera</title><link>https://jessestutler.github.io/posts/nsdi17-excamera/</link><pubDate>Tue, 18 May 2021 14:45:44 +0800</pubDate><guid>https://jessestutler.github.io/posts/nsdi17-excamera/</guid><description>Jesse's Blog https://jessestutler.github.io/posts/nsdi17-excamera/ -&lt;h1 id="nsdi17-excamera">NSDI17-ExCamera&lt;/h1>
 &lt;p>这是一篇将video encoding改造到serverless平台上的文章&lt;/p>
 &lt;p>论文链接：https://www.usenix.org/conference/nsdi17/technical-sessions/presentation/fouladi&lt;/p>
 &lt;h2 id="mu框架">mu框架&lt;/h2>
@@ -1166,222 +1371,4 @@ fmt.&lt;span style="color:#008b45">Println&lt;/span>(i.Value)
 &lt;li>&lt;a href="https://www.jianshu.com/p/517e757d6d17">https://www.jianshu.com/p/517e757d6d17&lt;/a>&lt;/li>
 &lt;li>&lt;a href="https://www.cnblogs.com/sparkdev/tag/docker/default.html?page=1">https://www.cnblogs.com/sparkdev/tag/docker/default.html?page=1&lt;/a>&lt;/li>
 &lt;/ul>
-- https://jessestutler.github.io/posts/docker%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86/ - 本站遵循 CC-BY-NC 4.0 协议</description></item><item><title>Docker基础知识</title><link>https://jessestutler.github.io/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/</link><pubDate>Sun, 07 Mar 2021 10:56:15 +0800</pubDate><guid>https://jessestutler.github.io/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/</guid><description>Jesse's Blog https://jessestutler.github.io/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/ -&lt;h1 id="docker">Docker&lt;/h1>
-&lt;h2 id="docker拉取镜像流程图">Docker拉取镜像流程图&lt;/h2>
-&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob5syundsj318o0ogn1v.jpg" alt="截屏2020-08-12 上午10.33.14">&lt;/p>
-&lt;h2 id="docker-cli">Docker CLI&lt;/h2>
-&lt;h3 id="镜像命令">镜像命令&lt;/h3>
-&lt;ul>
-&lt;li>
-&lt;p>&lt;code>docker images 查看本地的镜像&lt;/code>&lt;/p>
-&lt;p>docker images [image-name[:tag]]
-默认不加参数就是-a，或者指定image的名字，可在image之上再加版本号
-&amp;ndash;a 列出所有镜像
-&amp;ndash;q [image] 列出镜像的id（-aq是列出所有的镜像id）&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>&lt;code>docker search 镜像&lt;/code>&lt;/p>
-&lt;p>搜索远程仓库镜像（docker hub上查看更详细）&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>&lt;code>docker rmi [repo[:tag]] &lt;/code>&lt;/p>
-&lt;p>删除本地镜像，使用方法与images相同，注意rmi是删除镜像，rm是删除容器&lt;/p>
-&lt;p>或者根据docker images -q [image]列出的id进行删除&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>&lt;code>docker tag source_image[:tag] target_image[:tag] &lt;/code>&lt;/p>
-&lt;p>改镜像标签名（不然默认传到docker hub上的library仓库会被拒绝）&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>&lt;code>docker pull 镜像&lt;/code>&lt;/p>
-&lt;p>默认拉取的是docker hub上的Image，也可以用一个容器跑一个local docker registry，然后让其他使用了docker pull并指定了docker registry地址和端口的机子从这台运行了docker registry的机子上拉镜像&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>&lt;code>docker push 镜像&lt;/code>&lt;/p>
-&lt;p>将镜像上传到docker hub上的仓库或指定仓库&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>&lt;code>docker save -o [tar文件名] [镜像名] &lt;/code>&lt;/p>
-&lt;p>用来将镜像保存到tar文件当中，可以指定一个或多个镜像名
-也可以使用gzip压缩tar，使用docker save [镜像名] | gzip &amp;gt; [xxx.tar.gz]&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>&lt;code>docker load -i [tar文件名或gzip等压缩格式] &lt;/code>&lt;/p>
-&lt;p>用来读取文件形成镜像&lt;/p>
-&lt;/li>
-&lt;/ul>
-&lt;h3 id="容器命令">容器命令&lt;/h3>
-&lt;blockquote>
-&lt;p>&lt;strong>docker run 创建容器并运行&lt;/strong>&lt;/p>
-&lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">docker run [选项] 镜像名 [参数]
--it 获取stdin并运行一个伪tty(默认是/bin/bash，可在命令最后自己指定shell)
---name 为容器指定一个名字(最好加上方便些，不然就要根据container id来指示是哪个容器)
-最好加上自己docker hub上的repo名，这样可以直接push到自己的repo，而不用tag再改镜像名，如 jesse/centos:tag
--d 后台运行，如果容器没有对外提供服务或运行前台程序则会立刻停止
--p 将容器内的端口与host os的端口绑定起来，如-p host_port:container_port可以通过访问host的某个端口来访问容器内的某个服务
--P 大写P,将镜像指定的暴露端口与host os上的随机端口绑定起来，一般需要Dockerfile中有EXPOSE进行结合
--v 将容器内的某个文件夹与host os的文件夹绑定起来（即数据同步，相当于挂载）
-1.如-v host_dir:container_dir 指定路径挂载，可以将容器内的指定文件夹数据同步到host os的指定目录上，这样删除容器时不至于数据丢失（比如容器内装有Mysql，这样删除容器就相当于把整个数据库都删了）
-2.如-v volume_name:container_dir 具名挂载，会指定卷名，可以通过docker volume inspect volume_name查看在Host os上的目录位置
---volumes-from 继承已有的容器的数据卷（共享目录）
-e.g:
-docker run --name centos -it centos /bin/bash
-&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
-&lt;p>&lt;strong>docker ps 查看容器&lt;/strong>&lt;/p>
-&lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">不指定参数就是查看正在运行的容器
--a 查看所有容器（包括停止的容器）
--q 列出容器id
-&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
-&lt;p>docker rm [container id 或者 container name] 删除容器&lt;/p>
-&lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">不加参数需要指定container id或者container name，正在运行的容器无法删除
--f 强制删除容器
-docker ps -aq | xargs docker rm -f 强制删除所有容器
-&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
-&lt;p>docker start 启动容器&lt;/p>
-&lt;p>docker restart 重启容器&lt;/p>
-&lt;p>docker stop 停止容器&lt;/p>
-&lt;/blockquote>
-&lt;blockquote>
-&lt;p>docker logs 查看日志&lt;/p>
-&lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">-f 实时跟随
--t 显示时间
-&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
-&lt;p>docker top 显示容器内正在运行的进程&lt;/p>
-&lt;/blockquote>
-&lt;blockquote>
-&lt;p>docker inspect 显示容器的所有&lt;strong>配置信息（元数据）d&lt;/strong>&lt;/p>
-&lt;/blockquote>
-&lt;blockquote>
-&lt;p>&lt;strong>进入正在运行的容器&lt;/strong>&lt;/p>
-&lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">1.docker &lt;span style="color:#658b00">exec&lt;/span> [container] [command]
-在容器里跑一个命令
--it 与docker run相同，获取stdin并进入伪tty
-e.g:
-docker &lt;span style="color:#658b00">exec&lt;/span> -it [container id或者container name] bash ———— 在容器里跑一个新的bash并进入
-2.docker attach [container]
-直接进入到container当中
-&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
-&lt;p>docker cp 将容器中的文件拷贝到外部os或将外部os的文件拷贝至容器中&lt;/p>
-&lt;/blockquote>
-&lt;p>&lt;code>docker cp container:path dest_path&lt;/code>&lt;/p>
-&lt;blockquote>
-&lt;p>docker commit 由现有容器制作镜像&lt;/p>
-&lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">-a 指定作者名
--m 这次提交要发布的消息
-docker commit [选项] container [image[:tag]]
-&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="卷命令">卷命令&lt;/h3>
-&lt;blockquote>
-&lt;p>docker volume&lt;/p>
-&lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">特别说明：不同的容器可以指定相同的volume
-ls 列出所有的卷
-inspect 查看指定卷的信息（可查看挂载在host os上具体哪个位置）
-&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="docker基本命令图">Docker基本命令图&lt;/h2>
-&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob60cd4z5j316t0u0k9j.jpg" alt="image-20200812163714285">&lt;/p>
-&lt;h2 id="docker层的概念">Docker层的概念&lt;/h2>
-&lt;p>&lt;img src="https://timgsa.baidu.com/timg?image&amp;amp;quality=80&amp;amp;size=b9999_10000&amp;amp;sec=1597383379693&amp;amp;di=8a718adcadd59dbfafaf89136bcf6efe&amp;amp;imgtype=0&amp;amp;src=http%3A%2F%2Fimg2020.cnblogs.com%2Fblog%2F2030366%2F202006%2F2030366-20200630103737429-2119801149.png" alt="img">&lt;/p>
-&lt;h2 id="dockerfile命令">Dockerfile命令&lt;/h2>
-&lt;p>tips:&lt;/p>
-&lt;ul>
-&lt;li>
-&lt;p>命令最好大写，写一个命令代表构建&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>选用合适的镜像，不要选用过大的父镜像从而构建出臃肿庞大的镜像，选用小巧的父镜像（如alpine、busybox、debian等）&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>&lt;strong>使用多阶段构建形式（多个FROM命令，以最后一个FROM为根），例如将编译环境和构建环境分离开来可以避免镜像过大（因为构建环境只需要编译出来的可执行文件，而不需要编译所需的库和命令等一大堆文件）&lt;/strong>&lt;/p>
-&lt;p>COPY &amp;ndash;from=指定的阶段名&lt;/p>
-&lt;p>可以将指定阶段中编译好的文件拷贝到当前构建环境中，甚至可以从指定镜像中进行拷贝&lt;/p>
-&lt;p>e.g:&lt;/p>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="color:#228b22"># 编译阶段 命名为 builder&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">FROM&lt;/span>&lt;span style="color:#cd5555"> golang:1.10.3 as builder&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#228b22"># ... 省略&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#228b22"># 运行阶段&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">FROM&lt;/span>&lt;span style="color:#cd5555"> scratch&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#228b22"># 从编译阶段的中拷贝编译结果到当前镜像中&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">COPY&lt;/span> --from=builder /build/server /&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;/li>
-&lt;/ul>
-&lt;blockquote>
-&lt;p>&lt;strong>docker build&lt;/strong> 根据Dockerfile构建镜像命令&lt;/p>
-&lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">docker build [选项] URL|PATH
--f 要用哪一个Dockerfile（指定Path）
--t 给镜像取名字，可加tag（name:tag）
-e.g:
-docker build -f Dockerfile -t name:tag . 将当前的文件夹作为环境构造镜像
-可以以PATH指定的目录作为上下文环境来构建镜像，最好是以空目录为上下文环境，里面只放Dockerfile（除非是放生成镜像必须的文件，因为上下文过大的话发送给daemon会很慢），也可以是指定URL作为构建环境，也就是Git Repository，比如Github
-&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
-&lt;p>&lt;strong>FROM&lt;/strong>&lt;/p>
-&lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="color:#8b008b;font-weight:bold">FROM&lt;/span>&lt;span style="color:#cd5555"> image&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>Dockerfile都要以FROM开始，构建一个基本镜像&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>e.g:&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">FROM&lt;/span>&lt;span style="color:#cd5555"> scratch&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>这是Docker Hub上大多数镜像的选择，构建一个默认镜像&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
-&lt;p>&lt;strong>RUN&lt;/strong>&lt;/p>
-&lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="color:#8b008b;font-weight:bold">RUN&lt;/span> shell_command&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>build镜像时所要执行的命令&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>一般以执行shell命令的格式最佳,默认是以RUN /bin/sh -c command形式执行的&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>一行写不下时可以通过&lt;span style="color:#cd5555">\换&lt;/span>行,执行多个命令最好用&amp;amp;&amp;amp;来相连，这样可以少些一些RUN，因为RUN、ADD、COPY这些命令写一个命令就会加一层，这样会使容器不那么臃肿庞大&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
-&lt;p>CMD&lt;/p>
-&lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="color:#8b008b;font-weight:bold">CMD&lt;/span> [&lt;span style="color:#cd5555">&amp;#34;executable&amp;#34;&lt;/span>,&lt;span style="color:#cd5555">&amp;#34;param1&amp;#34;&lt;/span>,&lt;span style="color:#cd5555">&amp;#34;param2&amp;#34;&lt;/span>]一般以这种格式最佳（注意都要双引号，因为是JSON格式）&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">CMD&lt;/span>是容器运行时所要执行的命令，旨在指定run容器时所要做的默认动作，跟docker run后跟一个command原理是一样的&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>特别说明：Dockerfile中只能有一个CMD,如果有多个CMD，只有最后一个生效&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
-&lt;p>ENTRYPOINT&lt;/p>
-&lt;/blockquote>
-&lt;pre>&lt;code>使用方法与CMD相同，但是docker run后面如果跟command会把CMD要执行的命令覆盖掉，ENTRYPOINT要执行的命令不会，甚至能给ENTRYPOINT追加参数
-&lt;/code>&lt;/pre>&lt;blockquote>
-&lt;p>LABEL&lt;/p>
-&lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="color:#8b008b;font-weight:bold">LABEL&lt;/span> &lt;span style="color:#00688b">key&lt;/span>=&lt;span style="color:#cd5555">&amp;#34;value&amp;#34;&lt;/span> &lt;span style="color:#00688b">key&lt;/span>=&lt;span style="color:#cd5555">&amp;#34;value&amp;#34;&lt;/span> ... &lt;span style="color:#00688b">key&lt;/span>=&lt;span style="color:#cd5555">&amp;#34;value&amp;#34;&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>给镜像加元数据，以键值对的形式多组追加，可以通过&lt;span style="color:#cd5555">\换&lt;/span>行,比如在LABEL里加上maintainer（维护者）等信息&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>可以通过docker inspect来查看&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
-&lt;p>EXPOSE&lt;/p>
-&lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">让运行时的容器在指定端口进行监听，也就是暴露端口,默认是tcp，可以指定udp，如EXPOSE 53/udp&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>可以通过docker run中的-p来覆盖，也可以通过-P将host os上的随机端口与暴露的端口进行绑定&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
-&lt;p>&lt;strong>ENV&lt;/strong>&lt;/p>
-&lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">为运行的容器设置环境变量&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">ENV&lt;/span> key value 一个ENV设置一个环境变量&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
-&lt;p>ADD&lt;/p>
-&lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="color:#8b008b;font-weight:bold">ADD&lt;/span> &amp;lt;src&amp;gt;...&amp;lt;dest&amp;gt;&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>将src的文件，文件夹拷贝到dest，src可以是一个remote URL，dest可以是相对路径也可以是绝对路径，如果是相对路径那就是拷贝到WORKDIR/相对路径下&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>特别说明：dest如果是文件夹，想把文件拷贝到dest文件夹下，必须在最后加/&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">COPY&lt;/span>指令与ADD用法相同，但是ADD可以从远程url上拷贝，COPY只能拷贝本地宿主机上的文件&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
-&lt;p>WORKDIR&lt;/p>
-&lt;/blockquote>
-&lt;pre>&lt;code>设置进入容器时的工作目录，能使用ENV设置的环境变量
-&lt;/code>&lt;/pre>&lt;h2 id="容器网络配置">容器网络配置&lt;/h2>
-&lt;blockquote>
-&lt;p>docker network&lt;/p>
-&lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">connect 将一个容器部署进某个配置的网络当中，通过ls查看网络名
-ls 列出所有网络
-inspect 查看网络描述信息
-create 创建网络，可通过-d指定方式，有bridge，host等等，可通过--subnet指定子网和后缀
-...
-要让容器使用docker network创建的网络，在docker run时指定--net即可
-&lt;/code>&lt;/pre>&lt;/div>- https://jessestutler.github.io/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/ - 本站遵循 CC-BY-NC 4.0 协议</description></item></channel></rss>
+- https://jessestutler.github.io/posts/docker%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86/ - 本站遵循 CC-BY-NC 4.0 协议</description></item></channel></rss>
