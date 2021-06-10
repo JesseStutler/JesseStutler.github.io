@@ -84,7 +84,7 @@ pod中的容器共享network namespace，容器中运行的进程之间能够通
 
 污点其实就是节点的**反亲和性**，用处在于某些pod需要调度到特定节点上，而其他pod不能调度到这些节点上（就需要给这些pod加上容忍度），或者是某些节点挂掉了，需要驱逐某些pod，或者加上容忍度，容忍在指定时间内节点可以恢复，否则就要被驱逐
 
-使用 kubectl taint nodes node1 key*value:NoSchedule命令给node加上taint，用法类似kubectl label，要说明的是NoSchedule，有以下几种动作：
+使用 kubectl taint nodes node1 key=value:NoSchedule命令给node加上taint，用法类似kubectl label，要说明的是NoSchedule，有以下几种动作：
 
 - NoSchedule，如果node打上了taint，且pod没有指明tolerations，则pod不会被调度到该节点上
 - NoExecute，如果node打上了taint，则在该节点上运行的pod会被驱逐（一般是pod已经在该node上运行了，然后node挂了，由k8s自动给该node打上taint，然后驱逐node上运行的pod），pod也可以指明tolerations不被驱逐，或者在tolerations当中指明容忍时间，在超出容忍时间之后仍会被驱逐
@@ -265,6 +265,8 @@ ReplicationController的替代品，具有更强的标签筛选功能，工作�
 - External Name:
 
   通过external name指定集群外部服务（DNS名），将其虚拟为内部服务（直接通过cluster ip访问即可）
+
+
 
 ## volume
 
