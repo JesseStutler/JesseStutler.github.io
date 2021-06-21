@@ -1,4 +1,37 @@
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Jesse's Blog</title><link>https://jessestutler.github.io/</link><description>Recent content on Jesse's Blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><copyright>本站遵循 CC-BY-NC 4.0 协议</copyright><lastBuildDate>Thu, 10 Jun 2021 14:51:48 +0800</lastBuildDate><atom:link href="https://jessestutler.github.io/index.xml" rel="self" type="application/rss+xml"/><item><title>K8s Iptables分析</title><link>https://jessestutler.github.io/posts/k8s-iptables%E5%88%86%E6%9E%90/</link><pubDate>Thu, 10 Jun 2021 14:51:48 +0800</pubDate><guid>https://jessestutler.github.io/posts/k8s-iptables%E5%88%86%E6%9E%90/</guid><description>Jesse's Blog https://jessestutler.github.io/posts/k8s-iptables%E5%88%86%E6%9E%90/ -&lt;h1 id="k8s-iptables分析">K8s iptables分析&lt;/h1>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Jesse's Blog</title><link>https://jessestutler.github.io/</link><description>Recent content on Jesse's Blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><copyright>本站遵循 CC-BY-NC 4.0 协议</copyright><lastBuildDate>Mon, 21 Jun 2021 21:45:58 +0800</lastBuildDate><atom:link href="https://jessestutler.github.io/index.xml" rel="self" type="application/rss+xml"/><item><title>K8s Controller概析</title><link>https://jessestutler.github.io/posts/k8s-controller%E6%A6%82%E6%9E%90/</link><pubDate>Mon, 21 Jun 2021 21:45:58 +0800</pubDate><guid>https://jessestutler.github.io/posts/k8s-controller%E6%A6%82%E6%9E%90/</guid><description>Jesse's Blog https://jessestutler.github.io/posts/k8s-controller%E6%A6%82%E6%9E%90/ -&lt;h1 id="k8s-controller">k8s-controller&lt;/h1>
+&lt;p>本篇文章介绍k8s-controller的大致结构和大致流程&lt;/p>
+&lt;p>&lt;img src="https://github.com/YaoZengzeng/KubernetesResearch/raw/master/pic/kubecontroller/arch.jpeg" alt="arch">&lt;/p>
+&lt;p>此图展现了Controller的整体通用结构，上部Client-go部分是所有controller通用代码的抽象包（包括各种资源的controller，kube-proxy等，&lt;strong>这部分大家都差不多&lt;/strong>），而下部custom controller是具体controller的逻辑代码&lt;/p>
+&lt;h2 id="1reflector-listwatch">1）Reflector list&amp;amp;watch&lt;/h2>
+&lt;p>controller自己有对监控的资源的缓存，与从api server中查到的数据（最终来自etcd）一致，&lt;strong>List用来获取资源的全量数据（每经过resyncPeriod时间，就使用List获取最新版本的API对象，强制更新缓存，保证缓存的有效性），Watch用来对资源进行监听，以增量的方式接收资源对象的变更&lt;/strong>。Reflector会保存一个lastSyncResourceVersion，表示上次同步的版本，用来进行容错，出错时就从上次同步的版本开始。Reflector的工作就是将从api server HTTP GET到的数据实例化成对象，可以把Reflector视为informer的前端&lt;/p>
+&lt;p>Reflector工作流程：&lt;/p>
+&lt;ol>
+&lt;li>从api server获取一次全量对象，更新ResourceVersion，插入一个Sync类型的Delta到Delta FIFO中&lt;/li>
+&lt;li>开一个go routine每resyncPeriod获取全量对象，做法同1&lt;/li>
+&lt;li>Watch ResourceVersion以后的对象变化情况，一旦有对象变化，根据变化类型（是新增，更新还是删除）产生相应类型的Delta插入到DeltaFIFO中&lt;/li>
+&lt;/ol>
+&lt;h2 id="2-reflector-add-object">2) Reflector Add Object&lt;/h2>
+&lt;p>Reflector作为生产者，informer作为消费者，Reflector将资源的变更事件放到队列当中，由Informer处理增量事件（如add，update，delete等）&lt;/p>
+&lt;p>增量事件表示（Delta）：&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">&lt;span style="color:#8b008b;font-weight:bold">type&lt;/span> Delta &lt;span style="color:#8b008b;font-weight:bold">struct&lt;/span> {
+Type DeltaType &lt;span style="color:#228b22">// 增量事件类型，如Added, Updated, Deleted, Sync
+&lt;/span>&lt;span style="color:#228b22">&lt;/span> Object &lt;span style="color:#8b008b;font-weight:bold">interface&lt;/span>{} &lt;span style="color:#228b22">//资源实例全部信息
+&lt;/span>&lt;span style="color:#228b22">&lt;/span>}
+&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="3informer-pop-object--4-informer-add-object--5-indexer-store-object">3）Informer Pop object &amp;amp; 4) Informer Add Object &amp;amp; 5) Indexer Store Object&lt;/h2>
+&lt;p>informer从delta队列中取得资源对象实例，&lt;strong>更新本地缓存&lt;/strong>，Indexer实际上就是一个拥有读写锁的且拥有索引机制快速查找的Map，用来缓存监控资源对象数据&lt;/p>
+&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-go" data-lang="go">&lt;span style="color:#8b008b;font-weight:bold">type&lt;/span> threadSafeMap &lt;span style="color:#8b008b;font-weight:bold">struct&lt;/span> {
+lock sync.RWMutex
+items &lt;span style="color:#8b008b;font-weight:bold">map&lt;/span>[&lt;span style="color:#00688b;font-weight:bold">string&lt;/span>]&lt;span style="color:#8b008b;font-weight:bold">interface&lt;/span>{}
+indexers Indexers
+indices Indices
+}
+&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="6-informer-dispatch-event-handler-functions">6) Informer Dispatch Event Handler Functions&lt;/h2>
+&lt;p>Informer根据增量事件的类型交给初始化informer时注册的handler处理事件&lt;/p>
+&lt;p>不过通常来说，handler并不会真的实现自己的处理逻辑，因为这会阻塞Informer对于事件的分发。handler中的逻辑往往比较简单，就是将一个key放到队列中（图中work queue），可以通过多个go routine创建多个Worker，&lt;strong>Worker不断地通过ProcessNextWorkItem从队列中取得key，然后从缓存中取得“期望状态”，与从集群中取得的“实际状态”比较，使“实际状态”趋向于“期望状态”，这就是调谐&lt;/strong>。也就是说，&lt;strong>Controller具体的处理逻辑是由Worker来完成的（ProcessNextWorkItem中的syncHandler）&lt;/strong>&lt;/p>
+&lt;h2 id="参考">参考&lt;/h2>
+&lt;p>&lt;a href="https://www.cnblogs.com/YaoDD/p/11391344.html">https://www.cnblogs.com/YaoDD/p/11391344.html&lt;/a>&lt;/p>
+&lt;p>深入浅出Shared-informer &lt;a href="https://blog.csdn.net/weixin_42663840/article/details/81699303">https://blog.csdn.net/weixin_42663840/article/details/81699303&lt;/a>&lt;/p>
+- https://jessestutler.github.io/posts/k8s-controller%E6%A6%82%E6%9E%90/ - 本站遵循 CC-BY-NC 4.0 协议</description></item><item><title>K8s Iptables分析</title><link>https://jessestutler.github.io/posts/k8s-iptables%E5%88%86%E6%9E%90/</link><pubDate>Thu, 10 Jun 2021 14:51:48 +0800</pubDate><guid>https://jessestutler.github.io/posts/k8s-iptables%E5%88%86%E6%9E%90/</guid><description>Jesse's Blog https://jessestutler.github.io/posts/k8s-iptables%E5%88%86%E6%9E%90/ -&lt;h1 id="k8s-iptables分析">K8s iptables分析&lt;/h1>
 &lt;p>笔者最近因为需要看了下k8s的kube-proxy在默认iptables模式下对于iptables规则是如何管理的，以此作为记录并分享，后面会继续跟进kube-proxy并进行源码分析&lt;/p>
 &lt;p>这里笔者分享一套还不错的iptables学习路线：&lt;/p>
 &lt;p>&lt;a href="https://www.zsythink.net/archives/category/%e8%bf%90%e7%bb%b4%e7%9b%b8%e5%85%b3/iptables">https://www.zsythink.net/archives/category/%e8%bf%90%e7%bb%b4%e7%9b%b8%e5%85%b3/iptables&lt;/a>&lt;/p>
@@ -1264,111 +1297,4 @@ fmt.&lt;span style="color:#008b45">Println&lt;/span>(i.Value)
 &lt;p>sync.RWMutex，封装了Mutex，还内置读者计数器，可用于单写者多读者，效率比普通互斥锁要高&lt;/p>
 &lt;/li>
 &lt;/ul>
-- https://jessestutler.github.io/posts/golang%E5%9F%BA%E7%A1%80/ - 本站遵循 CC-BY-NC 4.0 协议</description></item><item><title>Docker底层原理</title><link>https://jessestutler.github.io/posts/docker%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86/</link><pubDate>Sun, 07 Mar 2021 11:12:39 +0800</pubDate><guid>https://jessestutler.github.io/posts/docker%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86/</guid><description>Jesse's Blog https://jessestutler.github.io/posts/docker%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86/ -&lt;h1 id="docker底层原理">docker底层原理&lt;/h1>
-&lt;h2 id="namespace资源隔离">namespace——资源隔离&lt;/h2>
-&lt;p>namespace 是 Linux 内核用来隔离内核资源的方式，同一个namespace中的进程之间可以互相感知，不同namespace之间的进程是相互独立的，&lt;strong>docker本身就是一个进程，通过namespace来实现隔离，从而模拟独立运行环境&lt;/strong>，在/proc/$$/ns下能查看当前进程下的所有link文件，每个link文件对应不同的namespace，&lt;strong>如果不同的进程间有相同的namespace的inode号，则他们是共享namespace的&lt;/strong>，否则他们属于不同的的namespace&lt;/p>
-&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob6e80y1pj30i904dglp.jpg" alt="img">&lt;/p>
-&lt;ul>
-&lt;li>
-&lt;p>**通过clone()函数在创建子进程的同时给子进程创建新的namespace（传入CLONE_*宏定义）**&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>UTS namespace：&lt;/p>
-&lt;p>提供&lt;strong>主机名和域名&lt;/strong>的隔离，使容器能够通过服务名访问&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>IPC namespace（进程间通信）：&lt;/p>
-&lt;p>实现&lt;strong>信号量、消息队列和共享内存等资源&lt;/strong>的隔离&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>PID namespace：&lt;/p>
-&lt;p>对进程内的PID重新标号，从1开始，每个PID namespace都有自己的计数程序，宿主机的PID namespace相当于创建进程的PID namespace的parent pid namespace，能看到子节点（child pid namespace)中的内容，但子节点不能看到父节点当中的内容，这样父节点能在外部管理容器内的进程&lt;/p>
-&lt;p>如果pid namespace中的某个进程的父进程被杀死，该进程成为孤儿进程，则&lt;strong>会被当前pid namespace的init进程（pid为1，如/bin/bash）收养，成为其子进程&lt;/strong>&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>mount namespace:&lt;/p>
-&lt;p>通过隔离文件系统挂载点来隔离文件系统（当创建新的mount namespace时，会将所有挂载点复制给子进程，但在这之后，子进程对自己namespace内文件系统进行的操作不会影响到父进程namespace）&lt;/p>
-&lt;p>&lt;strong>可以通过共享挂载机制传播挂载（主从挂载、共享挂载等）&lt;/strong>&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>network namespace:&lt;/p>
-&lt;p>提供网络资源的隔离，包括网络设备、协议栈、路由表、防火墙等等&lt;/p>
-&lt;/li>
-&lt;/ul>
-&lt;p>&lt;img src="https://images2018.cnblogs.com/blog/1259802/201804/1259802-20180410165500455-232801094.jpg" alt="img">&lt;/p>
-&lt;p>&lt;strong>默认的bridge模式&lt;/strong>：&lt;/p>
-&lt;p>每个容器有独立的network namespace，宿主机通过docker0网桥（虚拟网桥）来连接不同的network namespace，容器通过veth pair（虚拟以太网端口对，它们组成了一个数据的通道，数据从一个设备进入，就会从另一个设备出来）连接docker0网桥，设备的一端放在新创建的容器中，并命名为eth0。另一端放在主机中，以veth65f9这样类似的名字命名。&lt;/p>
-&lt;p>如果容器想主动和外界通信，或者外界想访问容器内的服务（访问宿主机的端口），实际上这是通过iptables来管理的（进行了转发和NAT转换等操作）&lt;/p>
-&lt;p>&lt;strong>host模式：&lt;/strong>&lt;/p>
-&lt;p>容器和宿主机共享network namespace，但其他namespace与宿主机隔离，容器用的是宿主机的ip与外界通信，性能较好但易产生端口冲突&lt;/p>
-&lt;p>&lt;strong>container模式：&lt;/strong>&lt;/p>
-&lt;p>新创建的容器若指定container模式，则和已经存在的容器共享一个network namespace，与此容器共享ip和协议栈&lt;/p>
-&lt;ul>
-&lt;li>
-&lt;p>user namespace&lt;/p>
-&lt;p>提供安全隔离，比如用户id，用户组，权限等，在子进程的user namespace中拥有新的用户和用户组，在父进程中的普通用户可能却成为子进程中namespace的超级用户，结构与pid namespace类似（树状结构），&lt;strong>子user namespace中的用户和用户组需要与父user namespace中的用户和用户组相对应（做映射）&lt;/strong>，这样这个user namespace才能与其他user namespace中的进程通信，甚至访问共享的文件（即对应到其他user namespace的用户和用户组并拥有相应的权限，如果没有相应的权限就不能在其他user namespace执行某些操作）&lt;/p>
-&lt;/li>
-&lt;/ul>
-&lt;h2 id="cgroups资源限制">cgroups——资源限制&lt;/h2>
-&lt;p>cgroups 是Linux内核提供的一种&lt;strong>可以限制单个进程或者多个进程所使用资源&lt;/strong>的机制，可以对 cpu，内存等资源实现精细化的控制（使用上限，使用范围等等），cgroup通过伪文件系统的形式进行控制&lt;/p>
-&lt;p>&lt;strong>涉及概念：&lt;/strong>&lt;/p>
-&lt;ul>
-&lt;li>
-&lt;p>task（任务）：表示系统的一个进程或线程&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>subsystem(子系统)：每个子系统就是一个资源控制器，有cpu、memory、io等等，/sys/fs/cgroup/下的目录就代表每个子系统&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>hierarchy（层级）：层级由一系列的cgroup以一个树状形式组成，由一个或多个子系统限制层级的资源使用量&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>&lt;strong>cgroup&lt;/strong>（控制组）：核心概念，由cgroup组成层级，task放在cgroup中，从而控制进程的使用资源量，docker的实现方法就是在每个子系统中为每个容器创建cgroup&lt;/p>
-&lt;p>ps:笔者自己ipad画的图，有点简陋抱歉:P，以后文章的图有时间都会用Graffle好好画一下&lt;/p>
-&lt;/li>
-&lt;/ul>
-&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gp8pmb9h1aj30xg0pdq97.jpg" alt="image-20201104214438717">&lt;/p>
-&lt;h2 id="docker-架构总览">docker 架构总览&lt;/h2>
-&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob68s57bpj311c0hm7ax.jpg" alt="image-20201209104859776">&lt;/p>
-&lt;h3 id="runc">runC&lt;/h3>
-&lt;p>是对于OCI标准的一个参考实现，是一个可以用于创建和运行容器的CLI(command-line interface)工具。runc直接与容器所依赖的cgroup/linux kernel等进行交互，负责为容器配置cgroup/namespace等启动容器所需的环境，创建启动容器的相关进程。runC基本上就是一个命令行小工具，它可以不用通过Docker引擎，直接就可以创建容器。这是一个独立的二进制文件，使用OCI容器就可以运行它。&lt;/p>
-&lt;h3 id="containerd">containerd&lt;/h3>
-&lt;p>containerd 是一个守护进程，它可以使用runC管理容器，并使用gRPC暴露容器的其他功能。docker engine面向client，containerd暴露出针对容器的增删改查的接口，Docker engine通过gRPC调用这些接口完成对于容器的操作，containerd最后会通过runc来实际运行容器。&lt;/p>
-&lt;h3 id="containerd-shim">containerd-shim&lt;/h3>
-&lt;p>containerd-shim称之为垫片，它使用runC命令行工具完成容器的启动、停止以及容器运行状态的监控。containerd-shim进程由containerd进程拉起，并持续存在到容器实例进程退出为止（和容器进程同生命周期）。这种设计的优点是，只要是符合OCI规范的容器，都可以通过containerd-shim来进行调用&lt;/p>
-&lt;h2 id="联合文件系统">联合文件系统&lt;/h2>
-&lt;p>&lt;img src="https://docs.docker.com/storage/storagedriver/images/container-layers.jpg" alt="Layers of a container based on the Ubuntu image">&lt;/p>
-&lt;p>&lt;strong>如果容器基于同一镜像构建，所有容器共享底部的镜像层，镜像层是read-only的，不可被修改，容器只是在镜像层之上创建了一个读写层，所有容器的修改都是在读写层当中修改，并不会影响到底部的镜像层，当容器删除了，读写层也就跟着删除了（除非commit做成了新的镜像）&lt;/strong>&lt;/p>
-&lt;p>&lt;strong>就算容器不是基于同一镜像构建，如果不同镜像中有相同的层（比如FROM是相同的），容器也会读取同一镜像层，这就是联合文件系统的精髓所在，副本只保存一份&lt;/strong>&lt;/p>
-&lt;p>&lt;img src="https://docs.docker.com/storage/storagedriver/images/sharing-layers.jpg" alt="Containers sharing same image">&lt;/p>
-&lt;h2 id="copy-on-writecow机制">Copy on write（COW）机制&lt;/h2>
-&lt;p>&lt;strong>当容器需要读取文件的时候&lt;/strong>&lt;/p>
-&lt;p>从最上层镜像开始查找，往下找，找到文件后读取并放入内存，若已经在内存中了，直接使用。(即，同一台机器上运行的docker容器共享运行时相同的文件)。&lt;/p>
-&lt;p>&lt;strong>当容器需要添加文件的时候&lt;/strong>&lt;/p>
-&lt;p>直接在最上面的容器层可写层添加文件，不会影响镜像层。&lt;/p>
-&lt;p>&lt;strong>当容器需要修改文件的时候&lt;/strong>&lt;/p>
-&lt;p>从上往下层寻找文件，找到后，&lt;strong>复制到容器可写层&lt;/strong>，然后，对容器来说，可以看到的是容器层的这个文件，看不到镜像层里的文件。容器在容器层修改这个文件（也就是覆盖）。&lt;/p>
-&lt;p>&lt;strong>如果是一个经常需要写的应用，最好使用volume而不是都写在容器层里，这样不会使容器层变得很大&lt;/strong>&lt;/p>
-&lt;p>&lt;strong>当容器需要删除文件的时候&lt;/strong>&lt;/p>
-&lt;p>从上往下层寻找文件，找到后在容器中记录删除。即，&lt;strong>并不会真正的删除文件，而是软删除&lt;/strong>。这将导致镜像体积只会增加，不会减少。&lt;strong>所以要写Dockerfile时如果要删除镜像中的文件，最好在同一层删除，否则只是软删除&lt;/strong>（因为如果真正的删除就会导致基于这个镜像构架内的其他容器无法再读取这个文件了）&lt;/p>
-&lt;h2 id="iptables默认规则只列举了部分">iptables默认规则（只列举了部分）&lt;/h2>
-&lt;ul>
-&lt;li>nat表：
-&lt;ul>
-&lt;li>如果数据源地址是docker0网段地址，且发往除docker 0外端口（即发往主机外），则做SNAT转换，修改为主机网卡ip地址&lt;/li>
-&lt;/ul>
-&lt;/li>
-&lt;li>filter表：
-&lt;ul>
-&lt;li>docker0发出的包可以中转给docker 0本身，即容器之间可以互相通信&lt;/li>
-&lt;li>docker0发出的包可以中转给其他宿主机上的其他网卡&lt;/li>
-&lt;/ul>
-&lt;/li>
-&lt;/ul>
-&lt;h2 id="参考资料">参考资料&lt;/h2>
-&lt;ul>
-&lt;li>《Docker容器与容器云 第2版》浙江大学SEL实验室·著&lt;/li>
-&lt;li>&lt;a href="https://www.jianshu.com/p/517e757d6d17">https://www.jianshu.com/p/517e757d6d17&lt;/a>&lt;/li>
-&lt;li>&lt;a href="https://www.cnblogs.com/sparkdev/tag/docker/default.html?page=1">https://www.cnblogs.com/sparkdev/tag/docker/default.html?page=1&lt;/a>&lt;/li>
-&lt;/ul>
-- https://jessestutler.github.io/posts/docker%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86/ - 本站遵循 CC-BY-NC 4.0 协议</description></item></channel></rss>
+- https://jessestutler.github.io/posts/golang%E5%9F%BA%E7%A1%80/ - 本站遵循 CC-BY-NC 4.0 协议</description></item></channel></rss>
