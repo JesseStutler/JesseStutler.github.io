@@ -7,8 +7,15 @@ go手册
 go build [file or package]
 如果是main包，生成可执行文件（可执行文件名同文件夹名），如果不是main包，不生成可执行文件，只进行编译
 如果是单个.go文件，main包中只能对含main函数的go文件进行编译并生成可执行文件，其他包只进行编译
-go module 以后默认用go module的方式进行包管理和添加依赖，以后workspace不必在$GOPATH下，$GOPATH就存放下载的包和编译好的课执行文件
+go module 以后默认用go module的方式进行包管理和添加依赖，以后workspace不必在GOPATH下，GOPATH就存放下载的包和编译好的课执行文件
 root workspace底下有两个文件，一个是go.mod（包管理），一个是go.sum（包校验），真正的包下载好放在$GOPATH/pkg/mod底下
 在root workspace底下用go mod init[模块名]生成go.mod，模块名命名格式为example.com/xxx..（一般就github.com/foo这样），然后引用workspace底下子目录的go文件，用模块名/子目录名的格式引用
-给项目添加依赖（写进 go.mod)的两种方法：
-你只要在项目中有 import，然后 go build 就会 go module 就会自动下载并添加（perfect way） 自己手工使用 go get 下载安装后，会自动写入 go.mod 常用命令 go mod init</description></item></channel></rss>
+==给项目添加依赖（写进 go.mod)的两种方法==：
+你只要在项目中有 import，然后 go build 就会 go module 就会自动下载并添加（perfect way） 自己手工使用 go get 下载安装后，会自动写入 go.mod 常用命令 go mod init
+初始化module
+go mod tidy
+下载缺少的包，清除没有用上的包
+go list
+-m all列出所有模块
+-u -m all列出所有模块及其可能拥有的更新
+go get -u [module] 更新模块及其依赖到最新版本</description></item></channel></rss>

@@ -1,11 +1,4 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Posts on Jesse's Blog</title><link>https://jessestutler.github.io/posts/</link><description>Recent content in Posts on Jesse's Blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><copyright>本站遵循 CC-BY-NC 4.0 协议</copyright><lastBuildDate>Mon, 21 Jun 2021 21:45:58 +0800</lastBuildDate><atom:link href="https://jessestutler.github.io/posts/index.xml" rel="self" type="application/rss+xml"/><item><title>K8s Controller概析</title><link>https://jessestutler.github.io/posts/k8s-controller%E6%A6%82%E6%9E%90/</link><pubDate>Mon, 21 Jun 2021 21:45:58 +0800</pubDate><guid>https://jessestutler.github.io/posts/k8s-controller%E6%A6%82%E6%9E%90/</guid><description>k8s-controller 本篇文章介绍k8s-controller的大致结构和大致流程
-此图展现了Controller的整体通用结构，上部Client-go部分是所有controller通用代码的抽象包（包括各种资源的controller，kube-proxy等，这部分大家都差不多），而下部custom controller是具体controller的逻辑代码
-1）Reflector list&amp;amp;watch controller自己有对监控的资源的缓存，与从api server中查到的数据（最终来自etcd）一致，List用来获取资源的全量数据（每经过resyncPeriod时间，就使用List获取最新版本的API对象，强制更新缓存，保证缓存的有效性），Watch用来对资源进行监听，以增量的方式接收资源对象的变更。Reflector会保存一个lastSyncResourceVersion，表示上次同步的版本，用来进行容错，出错时就从上次同步的版本开始。Reflector的工作就是将从api server HTTP GET到的数据实例化成对象，可以把Reflector视为informer的前端
-Reflector工作流程：
-从api server获取一次全量对象，更新ResourceVersion，插入一个Sync类型的Delta到Delta FIFO中 开一个go routine每resyncPeriod获取全量对象，做法同1 Watch ResourceVersion以后的对象变化情况，一旦有对象变化，根据变化类型（是新增，更新还是删除）产生相应类型的Delta插入到DeltaFIFO中 2) Reflector Add Object Reflector作为生产者，informer作为消费者，Reflector将资源的变更事件放到队列当中，由Informer处理增量事件（如add，update，delete等）
-增量事件表示（Delta）：
-type Delta struct { Type DeltaType // 增量事件类型，如Added, Updated, Deleted, Sync Object interface{} //资源实例全部信息 } 3）Informer Pop object &amp;amp; 4) Informer Add Object &amp;amp; 5) Indexer Store Object informer从delta队列中取得资源对象实例，更新本地缓存，Indexer实际上就是一个拥有读写锁的且拥有索引机制快速查找的Map，用来缓存监控资源对象数据
-type threadSafeMap struct { lock sync.RWMutex items map[string]interface{} indexers Indexers indices Indices } 6) Informer Dispatch Event Handler Functions Informer根据增量事件的类型交给初始化informer时注册的handler处理事件</description></item><item><title>K8s Iptables分析</title><link>https://jessestutler.github.io/posts/k8s-iptables%E5%88%86%E6%9E%90/</link><pubDate>Thu, 10 Jun 2021 14:51:48 +0800</pubDate><guid>https://jessestutler.github.io/posts/k8s-iptables%E5%88%86%E6%9E%90/</guid><description>K8s iptables分析 笔者最近因为需要看了下k8s的kube-proxy在默认iptables模式下对于iptables规则是如何管理的，以此作为记录并分享，后面会继续跟进kube-proxy并进行源码分析
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Posts on Jesse's Blog</title><link>https://jessestutler.github.io/posts/</link><description>Recent content in Posts on Jesse's Blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><copyright>本站遵循 CC-BY-NC 4.0 协议</copyright><lastBuildDate>Thu, 10 Jun 2021 14:51:48 +0800</lastBuildDate><atom:link href="https://jessestutler.github.io/posts/index.xml" rel="self" type="application/rss+xml"/><item><title>K8s Iptables分析</title><link>https://jessestutler.github.io/posts/k8s-iptables%E5%88%86%E6%9E%90/</link><pubDate>Thu, 10 Jun 2021 14:51:48 +0800</pubDate><guid>https://jessestutler.github.io/posts/k8s-iptables%E5%88%86%E6%9E%90/</guid><description>K8s iptables分析 笔者最近因为需要看了下k8s的kube-proxy在默认iptables模式下对于iptables规则是如何管理的，以此作为记录并分享，后面会继续跟进kube-proxy并进行源码分析
 这里笔者分享一套还不错的iptables学习路线：
 https://www.zsythink.net/archives/category/%e8%bf%90%e7%bb%b4%e7%9b%b8%e5%85%b3/iptables
 iptables知识 查 -t [表名] 指定想查看的表的规则，默认为filter表
@@ -27,7 +20,7 @@ iptables -t nat -L INPUT
 &amp;ndash;sport/dport [起始端口:结束端口] 表示匹配此范围内端口
 指定源端口和目标端口为扩展匹配条件，-m用来指定扩展模块，如-m tcp -dport 22表示匹配ssh，若不指定-m（最好指定），默认与-p指定的协议相同
 -m [模块] 使用模块扩展匹配条件
-离散端口： -m multiport --dports 22,53,80 需要指定multiport模块用来离散匹配 范围ip： -m iprange --src-range 192.</description></item><item><title>NSDI17 ExCamera</title><link>https://jessestutler.github.io/posts/nsdi17-excamera/</link><pubDate>Tue, 18 May 2021 14:45:44 +0800</pubDate><guid>https://jessestutler.github.io/posts/nsdi17-excamera/</guid><description>NSDI17-ExCamera 这是一篇将video encoding改造到serverless平台上的文章
+离散端口： -m multiport --dports 22,53,80 需要指定multiport模块用来离散匹配 范围ip： -m iprange --src-range 192.168.0.211-192.168.0.220 加备注： -m comment --comment [.</description></item><item><title>NSDI17 ExCamera</title><link>https://jessestutler.github.io/posts/nsdi17-excamera/</link><pubDate>Tue, 18 May 2021 14:45:44 +0800</pubDate><guid>https://jessestutler.github.io/posts/nsdi17-excamera/</guid><description>NSDI17-ExCamera 这是一篇将video encoding改造到serverless平台上的文章
 论文链接：https://www.usenix.org/conference/nsdi17/technical-sessions/presentation/fouladi
 mu框架 大致流程 AWS s3 invoke第一个Worker（function实例），然后Worker与Coordinator建立TLS连接并保持（Coordinator通过RPC call来调控Worker的状态，Worker就是一个有限状态机），当Coordinator收到来自Worker的message时，就会根据状态转换逻辑产生新的状态给Worker并发送下一个RPC请求。
 Coorinator是dependency-aware的，他会根据Worker产生的output来指派可以处理这个output的worker，这样就可以顺序执行而不会产生死锁
@@ -83,7 +76,10 @@ Maximum idle time before shut down
 I/O &amp;amp; network throughput
 当VM中的function实例越多，每个function的I/O和network吞吐量会越小，而且会受到function分配到的内存的影响，function占用的内存越大，吞吐量越高。所以，存在一个VM多instance的资源争用问题
 CPU usage（AWS是根据code的预配置memory量来分配cpu周期，memory量越多CPU周期越多，这样冷启动的时间也会减少越多，而且公平）
-Memory usage</description></item><item><title>ATC18——高性能workflowSAND</title><link>https://jessestutler.github.io/posts/atc18%E9%AB%98%E6%80%A7%E8%83%BDworkflowsand/</link><pubDate>Tue, 18 May 2021 14:28:02 +0800</pubDate><guid>https://jessestutler.github.io/posts/atc18%E9%AB%98%E6%80%A7%E8%83%BDworkflowsand/</guid><description>ATC18——高性能workflow SAND 这是一篇关于优化serverless workflow的文章
+Memory usage
+可以利用点 优化调度 AWS尝试将function调度视为一个装箱问题(bin-packing problem)，尽可能的将新生成的function实例装入已有的VM实例当中，以提高==内存利用率==。调度与function code无关。但是，这也会引入instance的资源争用问题
+如果function update的话可能会造成新一轮请求仍然被旧实例（可能是旧的函数的新实例，也可能是未被shut down的旧函数的旧实例）处理，怎么优化调度器？
+既然冷启动时间用VM就绪池的方法可以减少VM启动的这一部分latency，如何再减少scheduling latency？</description></item><item><title>ATC18——高性能workflowSAND</title><link>https://jessestutler.github.io/posts/atc18%E9%AB%98%E6%80%A7%E8%83%BDworkflowsand/</link><pubDate>Tue, 18 May 2021 14:28:02 +0800</pubDate><guid>https://jessestutler.github.io/posts/atc18%E9%AB%98%E6%80%A7%E8%83%BDworkflowsand/</guid><description>ATC18——高性能workflow SAND 这是一篇关于优化serverless workflow的文章
 论文下载链接：https://www.usenix.org/conference/atc18/presentation/akkus
 Sandbox 同属于同一个workflow的function属于一个application，一个application一个container，而不是一个function一个container
 但是有可能会引入资源竞争问题？
@@ -94,7 +90,9 @@ tips：local/global message bus都为不同的funciton维护有不同的队列�
 Host Agent Host agent是每台机子上的代理，他负责local message bus和global message bus的合作（比如备份，细节里会细说）；为自己机子上的函数从global message bus存取消息（订阅topic）；孵化容器和fork function
 细节 如何做备份 当function产生message到local message bus当中自己的队列时，会产生一份拷贝给host agent的队列，然后host agent将这份拷贝消息放到global message bus的这个function的队列（或者topic）当中，==作为备份并且打上标签表示完成状态==，host agent会追踪要接收这个消息的下一个function的完成进度，顺利完成会将状态转为finished，处理失败会将状态转为failed并交给另一个机子上的function处理
 workflow流程 假设有两个function完成workflow，一台机子（两个partiton)
-Step1：user request发送给function1，global message bus将消息放到partition1</description></item><item><title>Serverless分析</title><link>https://jessestutler.github.io/posts/serverless%E5%88%86%E6%9E%90/</link><pubDate>Tue, 18 May 2021 14:13:36 +0800</pubDate><guid>https://jessestutler.github.io/posts/serverless%E5%88%86%E6%9E%90/</guid><description>Serverless分析 本文根据Berkeley rise lab的综述Cloud Programming Simplifified:
+Step1：user request发送给function1，global message bus将消息放到partition1
+Step2: host agent（host agent负责global的订阅）将消息从partition1取出并放到local message bus的function1的队列
+Step3.1: function1（function负责local的订阅）将消息从local的自己队列中取出，fork新实例并处理，然后产生下一个消息给funtion2，将消息放到local message bus的function2队列</description></item><item><title>Serverless分析</title><link>https://jessestutler.github.io/posts/serverless%E5%88%86%E6%9E%90/</link><pubDate>Tue, 18 May 2021 14:13:36 +0800</pubDate><guid>https://jessestutler.github.io/posts/serverless%E5%88%86%E6%9E%90/</guid><description>Serverless分析 本文根据Berkeley rise lab的综述Cloud Programming Simplifified:
 A Berkeley View on Serverless Computing并结合其他相关材料进行总结，探究serverless的研究点，本文会持续进行更新。
 简单的说，Serverless就是FaaS+BaaS
 特点 按使用量付费（无请求时无资源无分配无花费，有请求时按使用量，按时间计算付费），性能提高（高并发量），autoscale，强隔离性（多租户），可供有突发流量情况而又无服务器扩展需求的公司使用；
@@ -115,7 +113,9 @@ tips：fork出的子进程与父进程共享堆栈，fd，代码段，由于copy
 含Zygote进程的container&amp;ndash;&amp;gt;含从Zygote fork出的子进程的container
 3）有些应用对于代码需要做一些定制的初始化操作，需要花费一定时间（比如加载和初始化数据结构，库等）
 4）如果需要频繁冷启动，namespace的频繁creation和cleanup需要性能损耗
-什么时候冷启动会发生？ 当function的code或者配置改变的时候，或者function第一次部署的时候 idle instance被shut down instance到了最大age被shut down（即使仍然在运行） 之前的instance都在忙于处理请求，需要横向扩展的时候 什么时候需要考虑冷启动的影响？ 也许像要访问存储服务的function本来就需要等待存取的latency，冷启动时间相对这段latency可有可无；也许实时数据流服务会频繁地invoke function，function会一直处理event很多次（可能200000次在到达最大age之前），那冷启动时间也可有可无。</description></item><item><title>Raft</title><link>https://jessestutler.github.io/posts/raft/</link><pubDate>Tue, 09 Mar 2021 16:30:52 +0800</pubDate><guid>https://jessestutler.github.io/posts/raft/</guid><description>Raft 引言 Raft是分布式数据一致性算法，用于解决PAXOS多年来晦涩难懂且难以工程复现的问题，本文对Raft发表的原文论文进行了大致解读
+什么时候冷启动会发生？ 当function的code或者配置改变的时候，或者function第一次部署的时候 idle instance被shut down instance到了最大age被shut down（即使仍然在运行） 之前的instance都在忙于处理请求，需要横向扩展的时候 什么时候需要考虑冷启动的影响？ 也许像要访问存储服务的function本来就需要等待存取的latency，冷启动时间相对这段latency可有可无；也许实时数据流服务会频繁地invoke function，function会一直处理event很多次（可能200000次在到达最大age之前），那冷启动时间也可有可无。
+但是对于请求量较少的function，可能一小时invoke一次，就有可能中间被shut down，需要每次都冷启动，那就需要考虑冷启动的开销，如果冷启动需要加载的依赖和库过大，就有可能需要很多的冷启动时间；对于需要快速回应的应用也需要考虑冷启动的影响
+解决冷启动方案 AWS使用VM就绪池，在function启动之前就准备接收function的调度，这样基本上只受scheduling latency的影响 尽可能的减少依赖，尽可能地用加载较快的语言（像Java中的JVM加载较慢） 降低冷启动时间的好处 可以让idle instance更少一些，可用资源更多一些（这样就不用因为担心冷启动时间过长而一直等待后续的请求了） Serverless可以探索的点 Abstraction Resouce requirements</description></item><item><title>Raft</title><link>https://jessestutler.github.io/posts/raft/</link><pubDate>Tue, 09 Mar 2021 16:30:52 +0800</pubDate><guid>https://jessestutler.github.io/posts/raft/</guid><description>Raft 引言 Raft是分布式数据一致性算法，用于解决PAXOS多年来晦涩难懂且难以工程复现的问题，本文对Raft发表的原文论文进行了大致解读
 基本算法内容 Basics Follower,Candidate,Leader 每个server分为三种状态（状态转换图见Leader election）：
 Follower：只接受RPC请求（就算收到来自client的请求也会重定向给leader） Candidate：参加竞选，可以发送RequestVote RPC，同样也可以接受请求 Leader（only one）：只有Leader可以处理来自client的请求，可以发送AppendEntries RPC，可以是追加日志条目用，也可以是心跳检测用（定期检测其他server是否还活着，通过无条目追加的AppendEntries RPC来做到） term——任期 Raft将时间随机划分，每一段称为任期（任期是单调递增的），任期都以一次选举开始，选举可以是选出leader也可以是未能选出leader（未能选出leader就直接进入下一任期）
 每台server发现自己的任期小于其他机器就需要update到最新
@@ -132,7 +132,20 @@ Candidate收到Leader（已经暂时选出的）的RPC请求，发现其任期�
 Leader&amp;mdash;&amp;gt;Follower:
 通过RPC的回复发现自己的任期已过期（有比自己更新的任期），退回到Follower
 Candidate&amp;mdash;&amp;gt;Follower：
-输掉选举（收到了来自己已选出的leader的RPC，但要确定自己的任期至少和Leader的任期相同，参考第3步） 通过RPC的回复发现自己的任期已过期（有比自己更新的任期），退回到Follower Log Replication 首先要说明的是，Leader只追加条目（entry）而不修改或删除entry</description></item><item><title>Golang基础</title><link>https://jessestutler.github.io/posts/golang%E5%9F%BA%E7%A1%80/</link><pubDate>Sun, 07 Mar 2021 11:25:55 +0800</pubDate><guid>https://jessestutler.github.io/posts/golang%E5%9F%BA%E7%A1%80/</guid><description>GOLANG 引言 云原生体系下，golang一定是必须要掌握的高级语言，golang内置的goroutine契合分布式架构的设计，越来越多的关于云的开源项目采用go进行实现。本文参考：http://c.biancheng.net/golang/intro/ ，本文对go的基础知识进行了大致介绍，可参照右侧的大纲检索，本文会持续更新。
+输掉选举（收到了来自己已选出的leader的RPC，但要确定自己的任期至少和Leader的任期相同，参考第3步） 通过RPC的回复发现自己的任期已过期（有比自己更新的任期），退回到Follower Log Replication 首先要说明的是，Leader只追加条目（entry）而不修改或删除entry
+Leader通过AppendEntries RPC来加条目复制到其他servers上，如果有server挂了他也会一直重复尝试发送。
+Follower如何确定自己Leader发过来的条目可以追加？
+Leader发送的条目会包括索引号和任期数，如果Follwer没有找到相同索引号和任期数的条目，就拒绝请求，找到了就说明这个条目之前的条目都是相同的
+条目什么时候应该被apply到各个机器上？
+我们称之为提交（commited），当条目已经被复制到大多数的servers上（维护一个replicas来确定），这些条目（包括之前的未提交的条目，前leader剩下的未提交的条目）就都会被提交，每台server都会维护一个highest index表示最后的已经提交的条目，已表示这之前的条目都已提交
+Leader crash所导致的log不一致问题 这个就是关键要解决的，Leader崩溃（然后发生Leader exchange）可能会导致一系列各server上log不一致的问题（前leader可能还未完全复制给所有机器），Follower可能会带有现Leader没有的log，或者更复杂的不一致问题，那如何解决呢？
+覆盖。
+如果有不一致的log，Leader需要找到和Follower的日志中相同的最后一个条目（也就是索引号和任期数相同，说明之前的条目都相同），然后将后面不一样的条目都覆盖成Leader的（当然缺少的话就直接追加）。
+解决方法：当新leader出现时，他会先进行一致性检查，他会维护一个nextIndex，表示下一个要发送给follower的条目的索引号，当follower拒绝追加请求时（发现不一致），leader就减小nextIndex的大小，直到条目相同为止，然后leader把这之后的条目全部覆盖掉Follower的日志
+Safety 当leader提交的时候万一发生Follower崩溃的情况，而Follower复原之后又当上新leader，可能会出现覆盖之前已经提交的entry的情况，继而造成不同server最后执行了不同command的情况
+解决方法：加上election restriction，对于candidate必须要涵盖之前已经所有已经提交的entry，也就是说就算candidate获得了大多数票数的情况下，必须以涵盖所有已提交entry为前提，否则不能赢得选举
+那如何保证candidate涵盖了所有已经提交的条目呢？
+candidate的日志必须是最新的（up-to-date）。怎样规定最新呢？两个server的日志如果任期更新者就是最新的，或者任期相同而拥有更长索引者就是最新的。如果candidate发送RequestVote RPC，而其log不比voter新，voter就要拒绝投票给candidate。</description></item><item><title>Golang基础</title><link>https://jessestutler.github.io/posts/golang%E5%9F%BA%E7%A1%80/</link><pubDate>Sun, 07 Mar 2021 11:25:55 +0800</pubDate><guid>https://jessestutler.github.io/posts/golang%E5%9F%BA%E7%A1%80/</guid><description>GOLANG 引言 云原生体系下，golang一定是必须要掌握的高级语言，golang内置的goroutine契合分布式架构的设计，越来越多的关于云的开源项目采用go进行实现。本文参考：http://c.biancheng.net/golang/intro/ ，本文对go的基础知识进行了大致介绍，可参照右侧的大纲检索，本文会持续更新。
 这里笔者也推荐一些go练手项目：
 https://geektutu.com/post/gee.html 极客兔兔的7天用go从零实现系列（必须强烈推荐👍，一天天打下来能对很多go的开源项目有个大致的认识，也能学到很多技巧） https://courses.calhoun.io/courses 需要挂梯子，作为一些对于go不同的包的练手项目不错 常用命令 go install [package-name]
 编译并安装包，如果不是main包则会安装到pkg底下作为库包，如果是main包则会安装到bin底下作为可执行文件
@@ -141,12 +154,19 @@ go手册
 go build [file or package]
 如果是main包，生成可执行文件（可执行文件名同文件夹名），如果不是main包，不生成可执行文件，只进行编译
 如果是单个.go文件，main包中只能对含main函数的go文件进行编译并生成可执行文件，其他包只进行编译
-go module 以后默认用go module的方式进行包管理和添加依赖，以后workspace不必在$GOPATH下，$GOPATH就存放下载的包和编译好的课执行文件
+go module 以后默认用go module的方式进行包管理和添加依赖，以后workspace不必在GOPATH下，GOPATH就存放下载的包和编译好的课执行文件
 root workspace底下有两个文件，一个是go.mod（包管理），一个是go.sum（包校验），真正的包下载好放在$GOPATH/pkg/mod底下
 在root workspace底下用go mod init[模块名]生成go.mod，模块名命名格式为example.com/xxx..（一般就github.com/foo这样），然后引用workspace底下子目录的go文件，用模块名/子目录名的格式引用
-给项目添加依赖（写进 go.mod)的两种方法：
-你只要在项目中有 import，然后 go build 就会 go module 就会自动下载并添加（perfect way） 自己手工使用 go get 下载安装后，会自动写入 go.mod 常用命令 go mod init</description></item><item><title>Docker底层原理</title><link>https://jessestutler.github.io/posts/docker%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86/</link><pubDate>Sun, 07 Mar 2021 11:12:39 +0800</pubDate><guid>https://jessestutler.github.io/posts/docker%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86/</guid><description>docker底层原理 namespace——资源隔离 namespace 是 Linux 内核用来隔离内核资源的方式，同一个namespace中的进程之间可以互相感知，不同namespace之间的进程是相互独立的，docker本身就是一个进程，通过namespace来实现隔离，从而模拟独立运行环境，在/proc/$$/ns下能查看当前进程下的所有link文件，每个link文件对应不同的namespace，如果不同的进程间有相同的namespace的inode号，则他们是共享namespace的，否则他们属于不同的的namespace
-**通过clone()函数在创建子进程的同时给子进程创建新的namespace（传入CLONE_*宏定义）**
+==给项目添加依赖（写进 go.mod)的两种方法==：
+你只要在项目中有 import，然后 go build 就会 go module 就会自动下载并添加（perfect way） 自己手工使用 go get 下载安装后，会自动写入 go.mod 常用命令 go mod init
+初始化module
+go mod tidy
+下载缺少的包，清除没有用上的包
+go list
+-m all列出所有模块
+-u -m all列出所有模块及其可能拥有的更新
+go get -u [module] 更新模块及其依赖到最新版本</description></item><item><title>Docker底层原理</title><link>https://jessestutler.github.io/posts/docker%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86/</link><pubDate>Sun, 07 Mar 2021 11:12:39 +0800</pubDate><guid>https://jessestutler.github.io/posts/docker%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86/</guid><description>docker底层原理 namespace——资源隔离 namespace 是 Linux 内核用来隔离内核资源的方式，同一个namespace中的进程之间可以互相感知，不同namespace之间的进程是相互独立的，docker本身就是一个进程，通过namespace来实现隔离，从而模拟独立运行环境，在/proc/$$/ns下能查看当前进程下的所有link文件，每个link文件对应不同的namespace，如果不同的进程间有相同的namespace的inode号，则他们是共享namespace的，否则他们属于不同的的namespace
+*通过clone()函数在创建子进程的同时给子进程创建新的namespace（传入CLONE_宏定义）
 UTS namespace：
 提供主机名和域名的隔离，使容器能够通过服务名访问
 IPC namespace（进程间通信）：
@@ -167,20 +187,28 @@ host模式：
 container模式：
 新创建的容器若指定container模式，则和已经存在的容器共享一个network namespace，与此容器共享ip和协议栈
 user namespace
-提供安全隔离，比如用户id，用户组，权限等，在子进程的user namespace中拥有新的用户和用户组，在父进程中的普通用户可能却成为子进程中namespace的超级用户，结构与pid namespace类似（树状结构），子user namespace中的用户和用户组需要与父user namespace中的用户和用户组相对应（做映射），这样这个user namespace才能与其他user namespace中的进程通信，甚至访问共享的文件（即对应到其他user namespace的用户和用户组并拥有相应的权限，如果没有相应的权限就不能在其他user namespace执行某些操作）</description></item><item><title>Docker基础知识</title><link>https://jessestutler.github.io/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/</link><pubDate>Sun, 07 Mar 2021 10:56:15 +0800</pubDate><guid>https://jessestutler.github.io/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/</guid><description>Docker Docker拉取镜像流程图 Docker CLI 镜像命令 docker images 查看本地的镜像
+提供安全隔离，比如用户id，用户组，权限等，在子进程的user namespace中拥有新的用户和用户组，在父进程中的普通用户可能却成为子进程中namespace的超级用户，结构与pid namespace类似（树状结构），子user namespace中的用户和用户组需要与父user namespace中的用户和用户组相对应（做映射），这样这个user namespace才能与其他user namespace中的进程通信，甚至访问共享的文件（即对应到其他user namespace的用户和用户组并拥有相应的权限，如果没有相应的权限就不能在其他user namespace执行某些操作）
+cgroups——资源限制 cgroups 是Linux内核提供的一种可以限制单个进程或者多个进程所使用资源的机制，可以对 cpu，内存等资源实现精细化的控制（使用上限，使用范围等等），cgroup通过伪文件系统的形式进行控制
+涉及概念：
+task（任务）：表示系统的一个进程或线程
+subsystem(子系统)：每个子系统就是一个资源控制器，有cpu、memory、io等等，/sys/fs/cgroup/下的目录就代表每个子系统
+hierarchy（层级）：层级由一系列的cgroup以一个树状形式组成，由一个或多个子系统限制层级的资源使用量
+cgroup（控制组）：核心概念，由cgroup组成层级，task放在cgroup中，从而控制进程的使用资源量，docker的实现方法就是在每个子系统中为每个容器创建cgroup
+ps:笔者自己ipad画的图，有点简陋抱歉:P，以后文章的图有时间都会用Graffle好好画一下
+docker 架构总览 runC 是对于OCI标准的一个参考实现，是一个可以用于创建和运行容器的CLI(command-line interface)工具。runc直接与容器所依赖的cgroup/linux kernel等进行交互，负责为容器配置cgroup/namespace等启动容器所需的环境，创建启动容器的相关进程。runC基本上就是一个命令行小工具，它可以不用通过Docker引擎，直接就可以创建容器。这是一个独立的二进制文件，使用OCI容器就可以运行它。</description></item><item><title>Docker基础知识</title><link>https://jessestutler.github.io/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/</link><pubDate>Sun, 07 Mar 2021 10:56:15 +0800</pubDate><guid>https://jessestutler.github.io/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/</guid><description>Docker Docker拉取镜像流程图 Docker CLI 镜像命令 docker images 查看本地的镜像
 docker images [image-name[:tag]] 默认不加参数就是-a，或者指定image的名字，可在image之上再加版本号 &amp;ndash;a 列出所有镜像 &amp;ndash;q [image] 列出镜像的id（-aq是列出所有的镜像id）
 docker search 镜像
 搜索远程仓库镜像（docker hub上查看更详细）
-docker rmi [repo[:tag]]
-删除本地镜像，使用方法与images相同，注意rmi是删除镜像，rm是删除容器
+docker rmi [repo[:tag]] 删除本地镜像，使用方法与images相同，注意rmi是删除镜像，rm是删除容器
 或者根据docker images -q [image]列出的id进行删除
-docker tag source_image[:tag] target_image[:tag]
-改镜像标签名（不然默认传到docker hub上的library仓库会被拒绝）
+docker tag source_image[:tag] target_image[:tag] 改镜像标签名（不然默认传到docker hub上的library仓库会被拒绝）
 docker pull 镜像
 默认拉取的是docker hub上的Image，也可以用一个容器跑一个local docker registry，然后让其他使用了docker pull并指定了docker registry地址和端口的机子从这台运行了docker registry的机子上拉镜像
 docker push 镜像
 将镜像上传到docker hub上的仓库或指定仓库
-docker save -o [tar文件名] [镜像名]</description></item><item><title>kubectl常用命令</title><link>https://jessestutler.github.io/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/</link><pubDate>Sun, 07 Mar 2021 10:30:17 +0800</pubDate><guid>https://jessestutler.github.io/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/</guid><description>k8s命令 引言 本文列举了一些kubectl的常用命令以及其对应的常用参数
+docker save -o [tar文件名] [镜像名] 用来将镜像保存到tar文件当中，可以指定一个或多个镜像名 也可以使用gzip压缩tar，使用docker save [镜像名] | gzip &amp;gt; [xxx.tar.gz]
+docker load -i [tar文件名或gzip等压缩格式] 用来读取文件形成镜像
+容器命令 docker run 创建容器并运行</description></item><item><title>kubectl常用命令</title><link>https://jessestutler.github.io/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/</link><pubDate>Sun, 07 Mar 2021 10:30:17 +0800</pubDate><guid>https://jessestutler.github.io/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/</guid><description>k8s命令 引言 本文列举了一些kubectl的常用命令以及其对应的常用参数
 kubectl的详细信息可参照：https://kubernetes.io/docs/reference/kubectl/overview/
 如果熟悉了kubectl的朋友，对于经常性的kubectl get 和kubectl describe查找resource感到繁琐，笔者在这里推荐一款开源的增强型kubectl软件k9s：https://github.com/derailed/k9s，相信对于vim熟悉的朋友会喜欢这款开源软件，而且可以当简略的dashboard使用
 kubectl kubectl create -f [yaml或者json文件]
@@ -202,12 +230,31 @@ kubectl delete [组件] [组件名1] [组件名2] [...]
 删除组件
 -all 删除所有组件
 注：删除命名空间，里面的组件也会一并删除
-kubectl scale [组件] [组件名] --replicas</description></item><item><title>K8s Resource概析</title><link>https://jessestutler.github.io/posts/k8s-resource%E6%A6%82%E6%9E%90/</link><pubDate>Sun, 07 Mar 2021 10:20:30 +0800</pubDate><guid>https://jessestutler.github.io/posts/k8s-resource%E6%A6%82%E6%9E%90/</guid><description>K8s Resource概析 引言 本文参照《Kubernetes in Action中文版》及其一些网上资料，对K8s中基础的Resource进行了概析。本文会持续更新。
-pod 为什么需要pod?
-主要目的是由多个进程组成的一个应用程序，多个进程不能聚集在一个容器中运行**（容器的设计目的就是只运行一个进程，如果容器中运行多个不相关的进程，比如需要包含一种进程崩溃后能够重启的机制，同时将进程的活动记录记录到相同的标准输出中，我们很难确定每个进程分别记录了什么），我们用pod来封装容器，将其作为k8s的基本单位**，既可以做到一个进程单独运行于一个容器当中，容器之间相互隔离，保持了容器的特性，又能同时运行一些密切相关的进程，为他们提供相同的环境。
-pod中的容器共享network namespace，容器中运行的进程之间能够通过端口来相互通信（同一个pod中的容器拥有相同的loopback网路接口，可以通过发往localhost与其他容器中的进程相互通信）
+kubectl scale [组件] [组件名] --replicas
+设置组件管理的资源数量，组件可以是Deployment, ReplicaSet, Replication Controller, StatefulSet or job</description></item><item><title>K8s Resource概析</title><link>https://jessestutler.github.io/posts/k8s-resource%E6%A6%82%E6%9E%90/</link><pubDate>Sun, 07 Mar 2021 10:20:30 +0800</pubDate><guid>https://jessestutler.github.io/posts/k8s-resource%E6%A6%82%E6%9E%90/</guid><description>K8s Resource概析 引言 本文参照《Kubernetes in Action中文版》及其一些网上资料，对K8s中基础的Resource进行了概析。本文会持续更新。
+pod pod中的容器共享network namespace，容器中运行的进程之间能够通过端口来相互通信（同一个pod中的容器拥有相同的loopback网路接口，可以通过发往localhost与其他容器中的进程相互通信）
 如何决定多个容器是否要放入同一个pod中？ 它们需要一起运行还是可以在不同主机上运行 它们代表的是一个整体还是相互独立的组件 它们必须一起扩缩容还是可以分别进行 liveness probe &amp;amp; readiness probe liveness probe——存活探针（在pod running时检测）
-通过 TCP、HTTP 或者命令行方式对应用就绪进行检测。对于 HTTP 类型探针，Kubernetes 会定时访问该地址，如果该地址的返回码不在 200 到 400 之间，则认为该容器不健康，会杀死该容器重建新的容器。
-readiness probe——就绪探针（在pod就绪前检测）
-对于启动缓慢的应用，为了避免在应用启动完成之前将流量导入。Kubernetes 支持业务容器提供一个 readiness 探针，对于 HTTP 类型探针，Kubernetes 会定时访问该地址，如果该地址的返回码不在 200 到 400 之间，则认为该容器无法对外提供服务，不会把请求调度到该容器。
-容器重启策略 Always ： 容器失效时，kubelet 自动重启该容器（就算成功执行完容器也会重启） OnFailure ： 容器终止运行且退出码不为0时重启 Never ： 不论状态为何， kubelet 都不重启该容器 节点亲和性 nodeAffinity:</description></item></channel></rss>
+在容器内部执行一个命令，若该命令的退出状态码为0，则健康 通过容器的ip和端口进行TCP检查，若端口能被访问到，则容器健康 调用http get方法，若响应码在200到400之间，则健康 readiness probe——就绪探针（在pod就绪前检测）
+对于启动缓慢的应用，为了避免在应用启动完成之前将流量导入。Kubernetes 支持业务容器提供一个 readiness 探针，探测规则同存活探针
+容器重启策略 Always ： 容器失效时，kubelet 自动重启该容器（就算成功执行完容器也会重启） OnFailure ： 容器终止运行且退出码不为0时重启 Never ： 不论状态为何， kubelet 都不重启该容器 节点亲和性 nodeAffinity:
+约束pod可以调度到哪些节点，是对nodeSelector的一种加强。有以下两种字段：
+requiredDuringSchedulingIgnoredDuringExecution（硬限制）：
+表示node必须满足pod指定条件(matchExpression）才能将pod调度到这些节点上，否则不进行调度（与nodeSelector相同）
+preferredDuringSchedulingIgnoredDuringExecution（软限制）：
+偏好将pod调度到满足pod指定条件的node上，如果没有满足指定条件的节点没关系，还是可以将pod调度到其他节点上
+IgnoredDuringExecution表示纵使节点标签发生改变，pod仍可以在节点上继续运行
+pod间亲和性 如果是大集群不建议使用pod亲和，否则需要涉及到大量的处理
+podAffinity和podAntiAffinity（pod亲和和反亲和）:
+既需要node匹配，又需要pod匹配，他的规则是：如果 X 节点上已经运行了一个或多个 满足规则 Y 的pod，则这个 pod 应该（或者在非亲和的情况下不应该）运行在 X 节点，X和Y都是标签（X是node的标签，可以是k8s内置标签也可以是自定义标签，表示一个拓扑域，Y是pod标签）
+字段与nodeAffinity相同，需要在pod的Spec中写明
+污点和容忍度 污点其实就是节点的反亲和性，用处在于某些pod需要调度到特定节点上，而其他pod不能调度到这些节点上（就需要给pod加上容忍度），或者是某些节点挂掉了，需要驱逐某些pod，或者加上容忍度，容忍在指定时间内节点可以恢复，否则就要被驱逐
+使用 kubectl taint nodes node1 key=value:NoSchedule命令给node加上taint，用法类似kubectl label，要说明的是NoSchedule，有以下几种动作：</description></item><item><title/><link>https://jessestutler.github.io/posts/k8s-controller%E6%A6%82%E6%9E%90/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jessestutler.github.io/posts/k8s-controller%E6%A6%82%E6%9E%90/</guid><description>k8s-controller 本篇文章介绍k8s-controller的大致结构和大致流程
+此图展现了Controller的整体通用结构，上部Client-go部分是所有controller通用代码的抽象包（包括各种资源的controller，kube-proxy等，这部分大家都差不多），而下部custom controller是具体controller的逻辑代码
+1）Reflector list&amp;amp;watch controller自己有对监控的资源的缓存，与从api server中查到的数据（最终来自etcd）一致，List用来获取资源的全量数据（每经过resyncPeriod时间，就使用List获取最新版本的API对象，强制更新缓存，保证缓存的有效性），Watch用来对资源进行监听，以增量的方式接收资源对象的变更。Reflector会保存一个lastSyncResourceVersion，表示上次同步的版本，用来进行容错，出错时就从上次同步的版本开始。Reflector的工作就是将从api server HTTP GET到的数据实例化成对象，可以把Reflector视为informer的前端
+Reflector工作流程：
+从api server获取一次全量对象，更新ResourceVersion，插入一个Sync类型的Delta到Delta FIFO中 开一个go routine每resyncPeriod获取全量对象，做法同1 Watch ResourceVersion以后的对象变化情况，一旦有对象变化，根据变化类型（是新增，更新还是删除）产生相应类型的Delta插入到DeltaFIFO中 2) Reflector Add Object Reflector作为生产者，informer作为消费者，Reflector将资源的变更事件放到队列当中，由Informer处理增量事件（sync，add，update，delete等）
+增量事件表示（Delta）：
+type Delta struct { Type DeltaType // 增量事件类型，如Added, Updated, Deleted, Sync Object interface{} //资源实例全部信息 } type DeltaFIFO struct{ ... items map[string]Deltas //存放了某个资源的所有变更时间，注意这里Delta是复数，Deltas代表的是切片 queue []string //key的队列 ... } 当事件为sync时，reflector会得到关于资源的list，如果本地缓存存在某个key，而list中不存在这个key，会产生delete事件插入到DelataFIFO当中
+3）Informer Pop object &amp;amp; 4) Informer Add Object &amp;amp; 5) Indexer Store Object informer从delta队列中取得资源对象实例，更新本地缓存，Indexer实际上就是一个拥有读写锁的且拥有索引机制快速查找的Map，用来缓存监控资源对象数据
+当缓存发生变动时，items会首先修改数据，然后索引也会发生修改
+type threadSafeMap struct { lock sync.</description></item></channel></rss>

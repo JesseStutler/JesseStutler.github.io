@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>docker on Jesse's Blog</title><link>https://jessestutler.github.io/tags/docker/</link><description>Recent content in docker on Jesse's Blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><copyright>本站遵循 CC-BY-NC 4.0 协议</copyright><lastBuildDate>Sun, 07 Mar 2021 11:12:39 +0800</lastBuildDate><atom:link href="https://jessestutler.github.io/tags/docker/index.xml" rel="self" type="application/rss+xml"/><item><title>Docker底层原理</title><link>https://jessestutler.github.io/posts/docker%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86/</link><pubDate>Sun, 07 Mar 2021 11:12:39 +0800</pubDate><guid>https://jessestutler.github.io/posts/docker%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86/</guid><description>docker底层原理 namespace——资源隔离 namespace 是 Linux 内核用来隔离内核资源的方式，同一个namespace中的进程之间可以互相感知，不同namespace之间的进程是相互独立的，docker本身就是一个进程，通过namespace来实现隔离，从而模拟独立运行环境，在/proc/$$/ns下能查看当前进程下的所有link文件，每个link文件对应不同的namespace，如果不同的进程间有相同的namespace的inode号，则他们是共享namespace的，否则他们属于不同的的namespace
-**通过clone()函数在创建子进程的同时给子进程创建新的namespace（传入CLONE_*宏定义）**
+*通过clone()函数在创建子进程的同时给子进程创建新的namespace（传入CLONE_宏定义）
 UTS namespace：
 提供主机名和域名的隔离，使容器能够通过服务名访问
 IPC namespace（进程间通信）：
@@ -20,17 +20,25 @@ host模式：
 container模式：
 新创建的容器若指定container模式，则和已经存在的容器共享一个network namespace，与此容器共享ip和协议栈
 user namespace
-提供安全隔离，比如用户id，用户组，权限等，在子进程的user namespace中拥有新的用户和用户组，在父进程中的普通用户可能却成为子进程中namespace的超级用户，结构与pid namespace类似（树状结构），子user namespace中的用户和用户组需要与父user namespace中的用户和用户组相对应（做映射），这样这个user namespace才能与其他user namespace中的进程通信，甚至访问共享的文件（即对应到其他user namespace的用户和用户组并拥有相应的权限，如果没有相应的权限就不能在其他user namespace执行某些操作）</description></item><item><title>Docker基础知识</title><link>https://jessestutler.github.io/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/</link><pubDate>Sun, 07 Mar 2021 10:56:15 +0800</pubDate><guid>https://jessestutler.github.io/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/</guid><description>Docker Docker拉取镜像流程图 Docker CLI 镜像命令 docker images 查看本地的镜像
+提供安全隔离，比如用户id，用户组，权限等，在子进程的user namespace中拥有新的用户和用户组，在父进程中的普通用户可能却成为子进程中namespace的超级用户，结构与pid namespace类似（树状结构），子user namespace中的用户和用户组需要与父user namespace中的用户和用户组相对应（做映射），这样这个user namespace才能与其他user namespace中的进程通信，甚至访问共享的文件（即对应到其他user namespace的用户和用户组并拥有相应的权限，如果没有相应的权限就不能在其他user namespace执行某些操作）
+cgroups——资源限制 cgroups 是Linux内核提供的一种可以限制单个进程或者多个进程所使用资源的机制，可以对 cpu，内存等资源实现精细化的控制（使用上限，使用范围等等），cgroup通过伪文件系统的形式进行控制
+涉及概念：
+task（任务）：表示系统的一个进程或线程
+subsystem(子系统)：每个子系统就是一个资源控制器，有cpu、memory、io等等，/sys/fs/cgroup/下的目录就代表每个子系统
+hierarchy（层级）：层级由一系列的cgroup以一个树状形式组成，由一个或多个子系统限制层级的资源使用量
+cgroup（控制组）：核心概念，由cgroup组成层级，task放在cgroup中，从而控制进程的使用资源量，docker的实现方法就是在每个子系统中为每个容器创建cgroup
+ps:笔者自己ipad画的图，有点简陋抱歉:P，以后文章的图有时间都会用Graffle好好画一下
+docker 架构总览 runC 是对于OCI标准的一个参考实现，是一个可以用于创建和运行容器的CLI(command-line interface)工具。runc直接与容器所依赖的cgroup/linux kernel等进行交互，负责为容器配置cgroup/namespace等启动容器所需的环境，创建启动容器的相关进程。runC基本上就是一个命令行小工具，它可以不用通过Docker引擎，直接就可以创建容器。这是一个独立的二进制文件，使用OCI容器就可以运行它。</description></item><item><title>Docker基础知识</title><link>https://jessestutler.github.io/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/</link><pubDate>Sun, 07 Mar 2021 10:56:15 +0800</pubDate><guid>https://jessestutler.github.io/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/</guid><description>Docker Docker拉取镜像流程图 Docker CLI 镜像命令 docker images 查看本地的镜像
 docker images [image-name[:tag]] 默认不加参数就是-a，或者指定image的名字，可在image之上再加版本号 &amp;ndash;a 列出所有镜像 &amp;ndash;q [image] 列出镜像的id（-aq是列出所有的镜像id）
 docker search 镜像
 搜索远程仓库镜像（docker hub上查看更详细）
-docker rmi [repo[:tag]]
-删除本地镜像，使用方法与images相同，注意rmi是删除镜像，rm是删除容器
+docker rmi [repo[:tag]] 删除本地镜像，使用方法与images相同，注意rmi是删除镜像，rm是删除容器
 或者根据docker images -q [image]列出的id进行删除
-docker tag source_image[:tag] target_image[:tag]
-改镜像标签名（不然默认传到docker hub上的library仓库会被拒绝）
+docker tag source_image[:tag] target_image[:tag] 改镜像标签名（不然默认传到docker hub上的library仓库会被拒绝）
 docker pull 镜像
 默认拉取的是docker hub上的Image，也可以用一个容器跑一个local docker registry，然后让其他使用了docker pull并指定了docker registry地址和端口的机子从这台运行了docker registry的机子上拉镜像
 docker push 镜像
 将镜像上传到docker hub上的仓库或指定仓库
-docker save -o [tar文件名] [镜像名]</description></item></channel></rss>
+docker save -o [tar文件名] [镜像名] 用来将镜像保存到tar文件当中，可以指定一个或多个镜像名 也可以使用gzip压缩tar，使用docker save [镜像名] | gzip &amp;gt; [xxx.tar.gz]
+docker load -i [tar文件名或gzip等压缩格式] 用来读取文件形成镜像
+容器命令 docker run 创建容器并运行</description></item></channel></rss>

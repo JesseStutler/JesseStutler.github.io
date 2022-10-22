@@ -1,11 +1,4 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>k8s on Jesse's Blog</title><link>https://jessestutler.github.io/tags/k8s/</link><description>Recent content in k8s on Jesse's Blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><copyright>本站遵循 CC-BY-NC 4.0 协议</copyright><lastBuildDate>Mon, 21 Jun 2021 21:45:58 +0800</lastBuildDate><atom:link href="https://jessestutler.github.io/tags/k8s/index.xml" rel="self" type="application/rss+xml"/><item><title>K8s Controller概析</title><link>https://jessestutler.github.io/posts/k8s-controller%E6%A6%82%E6%9E%90/</link><pubDate>Mon, 21 Jun 2021 21:45:58 +0800</pubDate><guid>https://jessestutler.github.io/posts/k8s-controller%E6%A6%82%E6%9E%90/</guid><description>k8s-controller 本篇文章介绍k8s-controller的大致结构和大致流程
-此图展现了Controller的整体通用结构，上部Client-go部分是所有controller通用代码的抽象包（包括各种资源的controller，kube-proxy等，这部分大家都差不多），而下部custom controller是具体controller的逻辑代码
-1）Reflector list&amp;amp;watch controller自己有对监控的资源的缓存，与从api server中查到的数据（最终来自etcd）一致，List用来获取资源的全量数据（每经过resyncPeriod时间，就使用List获取最新版本的API对象，强制更新缓存，保证缓存的有效性），Watch用来对资源进行监听，以增量的方式接收资源对象的变更。Reflector会保存一个lastSyncResourceVersion，表示上次同步的版本，用来进行容错，出错时就从上次同步的版本开始。Reflector的工作就是将从api server HTTP GET到的数据实例化成对象，可以把Reflector视为informer的前端
-Reflector工作流程：
-从api server获取一次全量对象，更新ResourceVersion，插入一个Sync类型的Delta到Delta FIFO中 开一个go routine每resyncPeriod获取全量对象，做法同1 Watch ResourceVersion以后的对象变化情况，一旦有对象变化，根据变化类型（是新增，更新还是删除）产生相应类型的Delta插入到DeltaFIFO中 2) Reflector Add Object Reflector作为生产者，informer作为消费者，Reflector将资源的变更事件放到队列当中，由Informer处理增量事件（如add，update，delete等）
-增量事件表示（Delta）：
-type Delta struct { Type DeltaType // 增量事件类型，如Added, Updated, Deleted, Sync Object interface{} //资源实例全部信息 } 3）Informer Pop object &amp;amp; 4) Informer Add Object &amp;amp; 5) Indexer Store Object informer从delta队列中取得资源对象实例，更新本地缓存，Indexer实际上就是一个拥有读写锁的且拥有索引机制快速查找的Map，用来缓存监控资源对象数据
-type threadSafeMap struct { lock sync.RWMutex items map[string]interface{} indexers Indexers indices Indices } 6) Informer Dispatch Event Handler Functions Informer根据增量事件的类型交给初始化informer时注册的handler处理事件</description></item><item><title>K8s Iptables分析</title><link>https://jessestutler.github.io/posts/k8s-iptables%E5%88%86%E6%9E%90/</link><pubDate>Thu, 10 Jun 2021 14:51:48 +0800</pubDate><guid>https://jessestutler.github.io/posts/k8s-iptables%E5%88%86%E6%9E%90/</guid><description>K8s iptables分析 笔者最近因为需要看了下k8s的kube-proxy在默认iptables模式下对于iptables规则是如何管理的，以此作为记录并分享，后面会继续跟进kube-proxy并进行源码分析
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>k8s on Jesse's Blog</title><link>https://jessestutler.github.io/tags/k8s/</link><description>Recent content in k8s on Jesse's Blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><copyright>本站遵循 CC-BY-NC 4.0 协议</copyright><lastBuildDate>Thu, 10 Jun 2021 14:51:48 +0800</lastBuildDate><atom:link href="https://jessestutler.github.io/tags/k8s/index.xml" rel="self" type="application/rss+xml"/><item><title>K8s Iptables分析</title><link>https://jessestutler.github.io/posts/k8s-iptables%E5%88%86%E6%9E%90/</link><pubDate>Thu, 10 Jun 2021 14:51:48 +0800</pubDate><guid>https://jessestutler.github.io/posts/k8s-iptables%E5%88%86%E6%9E%90/</guid><description>K8s iptables分析 笔者最近因为需要看了下k8s的kube-proxy在默认iptables模式下对于iptables规则是如何管理的，以此作为记录并分享，后面会继续跟进kube-proxy并进行源码分析
 这里笔者分享一套还不错的iptables学习路线：
 https://www.zsythink.net/archives/category/%e8%bf%90%e7%bb%b4%e7%9b%b8%e5%85%b3/iptables
 iptables知识 查 -t [表名] 指定想查看的表的规则，默认为filter表
@@ -27,7 +20,7 @@ iptables -t nat -L INPUT
 &amp;ndash;sport/dport [起始端口:结束端口] 表示匹配此范围内端口
 指定源端口和目标端口为扩展匹配条件，-m用来指定扩展模块，如-m tcp -dport 22表示匹配ssh，若不指定-m（最好指定），默认与-p指定的协议相同
 -m [模块] 使用模块扩展匹配条件
-离散端口： -m multiport --dports 22,53,80 需要指定multiport模块用来离散匹配 范围ip： -m iprange --src-range 192.</description></item><item><title>kubectl常用命令</title><link>https://jessestutler.github.io/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/</link><pubDate>Sun, 07 Mar 2021 10:30:17 +0800</pubDate><guid>https://jessestutler.github.io/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/</guid><description>k8s命令 引言 本文列举了一些kubectl的常用命令以及其对应的常用参数
+离散端口： -m multiport --dports 22,53,80 需要指定multiport模块用来离散匹配 范围ip： -m iprange --src-range 192.168.0.211-192.168.0.220 加备注： -m comment --comment [.</description></item><item><title>kubectl常用命令</title><link>https://jessestutler.github.io/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/</link><pubDate>Sun, 07 Mar 2021 10:30:17 +0800</pubDate><guid>https://jessestutler.github.io/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/</guid><description>k8s命令 引言 本文列举了一些kubectl的常用命令以及其对应的常用参数
 kubectl的详细信息可参照：https://kubernetes.io/docs/reference/kubectl/overview/
 如果熟悉了kubectl的朋友，对于经常性的kubectl get 和kubectl describe查找resource感到繁琐，笔者在这里推荐一款开源的增强型kubectl软件k9s：https://github.com/derailed/k9s，相信对于vim熟悉的朋友会喜欢这款开源软件，而且可以当简略的dashboard使用
 kubectl kubectl create -f [yaml或者json文件]
@@ -49,12 +42,22 @@ kubectl delete [组件] [组件名1] [组件名2] [...]
 删除组件
 -all 删除所有组件
 注：删除命名空间，里面的组件也会一并删除
-kubectl scale [组件] [组件名] --replicas</description></item><item><title>K8s Resource概析</title><link>https://jessestutler.github.io/posts/k8s-resource%E6%A6%82%E6%9E%90/</link><pubDate>Sun, 07 Mar 2021 10:20:30 +0800</pubDate><guid>https://jessestutler.github.io/posts/k8s-resource%E6%A6%82%E6%9E%90/</guid><description>K8s Resource概析 引言 本文参照《Kubernetes in Action中文版》及其一些网上资料，对K8s中基础的Resource进行了概析。本文会持续更新。
-pod 为什么需要pod?
-主要目的是由多个进程组成的一个应用程序，多个进程不能聚集在一个容器中运行**（容器的设计目的就是只运行一个进程，如果容器中运行多个不相关的进程，比如需要包含一种进程崩溃后能够重启的机制，同时将进程的活动记录记录到相同的标准输出中，我们很难确定每个进程分别记录了什么），我们用pod来封装容器，将其作为k8s的基本单位**，既可以做到一个进程单独运行于一个容器当中，容器之间相互隔离，保持了容器的特性，又能同时运行一些密切相关的进程，为他们提供相同的环境。
-pod中的容器共享network namespace，容器中运行的进程之间能够通过端口来相互通信（同一个pod中的容器拥有相同的loopback网路接口，可以通过发往localhost与其他容器中的进程相互通信）
+kubectl scale [组件] [组件名] --replicas
+设置组件管理的资源数量，组件可以是Deployment, ReplicaSet, Replication Controller, StatefulSet or job</description></item><item><title>K8s Resource概析</title><link>https://jessestutler.github.io/posts/k8s-resource%E6%A6%82%E6%9E%90/</link><pubDate>Sun, 07 Mar 2021 10:20:30 +0800</pubDate><guid>https://jessestutler.github.io/posts/k8s-resource%E6%A6%82%E6%9E%90/</guid><description>K8s Resource概析 引言 本文参照《Kubernetes in Action中文版》及其一些网上资料，对K8s中基础的Resource进行了概析。本文会持续更新。
+pod pod中的容器共享network namespace，容器中运行的进程之间能够通过端口来相互通信（同一个pod中的容器拥有相同的loopback网路接口，可以通过发往localhost与其他容器中的进程相互通信）
 如何决定多个容器是否要放入同一个pod中？ 它们需要一起运行还是可以在不同主机上运行 它们代表的是一个整体还是相互独立的组件 它们必须一起扩缩容还是可以分别进行 liveness probe &amp;amp; readiness probe liveness probe——存活探针（在pod running时检测）
-通过 TCP、HTTP 或者命令行方式对应用就绪进行检测。对于 HTTP 类型探针，Kubernetes 会定时访问该地址，如果该地址的返回码不在 200 到 400 之间，则认为该容器不健康，会杀死该容器重建新的容器。
-readiness probe——就绪探针（在pod就绪前检测）
-对于启动缓慢的应用，为了避免在应用启动完成之前将流量导入。Kubernetes 支持业务容器提供一个 readiness 探针，对于 HTTP 类型探针，Kubernetes 会定时访问该地址，如果该地址的返回码不在 200 到 400 之间，则认为该容器无法对外提供服务，不会把请求调度到该容器。
-容器重启策略 Always ： 容器失效时，kubelet 自动重启该容器（就算成功执行完容器也会重启） OnFailure ： 容器终止运行且退出码不为0时重启 Never ： 不论状态为何， kubelet 都不重启该容器 节点亲和性 nodeAffinity:</description></item></channel></rss>
+在容器内部执行一个命令，若该命令的退出状态码为0，则健康 通过容器的ip和端口进行TCP检查，若端口能被访问到，则容器健康 调用http get方法，若响应码在200到400之间，则健康 readiness probe——就绪探针（在pod就绪前检测）
+对于启动缓慢的应用，为了避免在应用启动完成之前将流量导入。Kubernetes 支持业务容器提供一个 readiness 探针，探测规则同存活探针
+容器重启策略 Always ： 容器失效时，kubelet 自动重启该容器（就算成功执行完容器也会重启） OnFailure ： 容器终止运行且退出码不为0时重启 Never ： 不论状态为何， kubelet 都不重启该容器 节点亲和性 nodeAffinity:
+约束pod可以调度到哪些节点，是对nodeSelector的一种加强。有以下两种字段：
+requiredDuringSchedulingIgnoredDuringExecution（硬限制）：
+表示node必须满足pod指定条件(matchExpression）才能将pod调度到这些节点上，否则不进行调度（与nodeSelector相同）
+preferredDuringSchedulingIgnoredDuringExecution（软限制）：
+偏好将pod调度到满足pod指定条件的node上，如果没有满足指定条件的节点没关系，还是可以将pod调度到其他节点上
+IgnoredDuringExecution表示纵使节点标签发生改变，pod仍可以在节点上继续运行
+pod间亲和性 如果是大集群不建议使用pod亲和，否则需要涉及到大量的处理
+podAffinity和podAntiAffinity（pod亲和和反亲和）:
+既需要node匹配，又需要pod匹配，他的规则是：如果 X 节点上已经运行了一个或多个 满足规则 Y 的pod，则这个 pod 应该（或者在非亲和的情况下不应该）运行在 X 节点，X和Y都是标签（X是node的标签，可以是k8s内置标签也可以是自定义标签，表示一个拓扑域，Y是pod标签）
+字段与nodeAffinity相同，需要在pod的Spec中写明
+污点和容忍度 污点其实就是节点的反亲和性，用处在于某些pod需要调度到特定节点上，而其他pod不能调度到这些节点上（就需要给pod加上容忍度），或者是某些节点挂掉了，需要驱逐某些pod，或者加上容忍度，容忍在指定时间内节点可以恢复，否则就要被驱逐
+使用 kubectl taint nodes node1 key=value:NoSchedule命令给node加上taint，用法类似kubectl label，要说明的是NoSchedule，有以下几种动作：</description></item></channel></rss>

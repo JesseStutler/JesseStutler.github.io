@@ -54,7 +54,10 @@ Maximum idle time before shut down
 I/O &amp;amp; network throughput
 当VM中的function实例越多，每个function的I/O和network吞吐量会越小，而且会受到function分配到的内存的影响，function占用的内存越大，吞吐量越高。所以，存在一个VM多instance的资源争用问题
 CPU usage（AWS是根据code的预配置memory量来分配cpu周期，memory量越多CPU周期越多，这样冷启动的时间也会减少越多，而且公平）
-Memory usage</description></item><item><title>ATC18——高性能workflowSAND</title><link>https://jessestutler.github.io/posts/atc18%E9%AB%98%E6%80%A7%E8%83%BDworkflowsand/</link><pubDate>Tue, 18 May 2021 14:28:02 +0800</pubDate><guid>https://jessestutler.github.io/posts/atc18%E9%AB%98%E6%80%A7%E8%83%BDworkflowsand/</guid><description>ATC18——高性能workflow SAND 这是一篇关于优化serverless workflow的文章
+Memory usage
+可以利用点 优化调度 AWS尝试将function调度视为一个装箱问题(bin-packing problem)，尽可能的将新生成的function实例装入已有的VM实例当中，以提高==内存利用率==。调度与function code无关。但是，这也会引入instance的资源争用问题
+如果function update的话可能会造成新一轮请求仍然被旧实例（可能是旧的函数的新实例，也可能是未被shut down的旧函数的旧实例）处理，怎么优化调度器？
+既然冷启动时间用VM就绪池的方法可以减少VM启动的这一部分latency，如何再减少scheduling latency？</description></item><item><title>ATC18——高性能workflowSAND</title><link>https://jessestutler.github.io/posts/atc18%E9%AB%98%E6%80%A7%E8%83%BDworkflowsand/</link><pubDate>Tue, 18 May 2021 14:28:02 +0800</pubDate><guid>https://jessestutler.github.io/posts/atc18%E9%AB%98%E6%80%A7%E8%83%BDworkflowsand/</guid><description>ATC18——高性能workflow SAND 这是一篇关于优化serverless workflow的文章
 论文下载链接：https://www.usenix.org/conference/atc18/presentation/akkus
 Sandbox 同属于同一个workflow的function属于一个application，一个application一个container，而不是一个function一个container
 但是有可能会引入资源竞争问题？
@@ -65,4 +68,6 @@ tips：local/global message bus都为不同的funciton维护有不同的队列�
 Host Agent Host agent是每台机子上的代理，他负责local message bus和global message bus的合作（比如备份，细节里会细说）；为自己机子上的函数从global message bus存取消息（订阅topic）；孵化容器和fork function
 细节 如何做备份 当function产生message到local message bus当中自己的队列时，会产生一份拷贝给host agent的队列，然后host agent将这份拷贝消息放到global message bus的这个function的队列（或者topic）当中，==作为备份并且打上标签表示完成状态==，host agent会追踪要接收这个消息的下一个function的完成进度，顺利完成会将状态转为finished，处理失败会将状态转为failed并交给另一个机子上的function处理
 workflow流程 假设有两个function完成workflow，一台机子（两个partiton)
-Step1：user request发送给function1，global message bus将消息放到partition1</description></item></channel></rss>
+Step1：user request发送给function1，global message bus将消息放到partition1
+Step2: host agent（host agent负责global的订阅）将消息从partition1取出并放到local message bus的function1的队列
+Step3.1: function1（function负责local的订阅）将消息从local的自己队列中取出，fork新实例并处理，然后产生下一个消息给funtion2，将消息放到local message bus的function2队列</description></item></channel></rss>

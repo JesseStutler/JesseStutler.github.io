@@ -1,111 +1,4 @@
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Jesse's Blog</title><link>https://jessestutler.github.io/</link><description>Recent content on Jesse's Blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><copyright>本站遵循 CC-BY-NC 4.0 协议</copyright><lastBuildDate>Mon, 21 Jun 2021 21:45:58 +0800</lastBuildDate><atom:link href="https://jessestutler.github.io/index.xml" rel="self" type="application/rss+xml"/><item><title>Docker底层原理</title><link>https://jessestutler.github.io/posts/docker%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86/</link><pubDate>Sun, 07 Mar 2021 11:12:39 +0800</pubDate><guid>https://jessestutler.github.io/posts/docker%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86/</guid><description>Jesse's Blog https://jessestutler.github.io/posts/docker%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86/ -&lt;h1 id="docker底层原理">docker底层原理&lt;/h1>
-&lt;h2 id="namespace资源隔离">namespace——资源隔离&lt;/h2>
-&lt;p>namespace 是 Linux 内核用来隔离内核资源的方式，同一个namespace中的进程之间可以互相感知，不同namespace之间的进程是相互独立的，&lt;strong>docker本身就是一个进程，通过namespace来实现隔离，从而模拟独立运行环境&lt;/strong>，在/proc/$$/ns下能查看当前进程下的所有link文件，每个link文件对应不同的namespace，&lt;strong>如果不同的进程间有相同的namespace的inode号，则他们是共享namespace的&lt;/strong>，否则他们属于不同的的namespace&lt;/p>
-&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob6e80y1pj30i904dglp.jpg" alt="img">&lt;/p>
-&lt;ul>
-&lt;li>
-&lt;p>**通过clone()函数在创建子进程的同时给子进程创建新的namespace（传入CLONE_*宏定义）**&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>UTS namespace：&lt;/p>
-&lt;p>提供&lt;strong>主机名和域名&lt;/strong>的隔离，使容器能够通过服务名访问&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>IPC namespace（进程间通信）：&lt;/p>
-&lt;p>实现&lt;strong>信号量、消息队列和共享内存等资源&lt;/strong>的隔离&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>PID namespace：&lt;/p>
-&lt;p>对进程内的PID重新标号，从1开始，每个PID namespace都有自己的计数程序，宿主机的PID namespace相当于创建进程的PID namespace的parent pid namespace，能看到子节点（child pid namespace)中的内容，但子节点不能看到父节点当中的内容，这样父节点能在外部管理容器内的进程&lt;/p>
-&lt;p>如果pid namespace中的某个进程的父进程被杀死，该进程成为孤儿进程，则&lt;strong>会被当前pid namespace的init进程（pid为1，如/bin/bash）收养，成为其子进程&lt;/strong>&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>mount namespace:&lt;/p>
-&lt;p>通过隔离文件系统挂载点来隔离文件系统（当创建新的mount namespace时，会将所有挂载点复制给子进程，但在这之后，子进程对自己namespace内文件系统进行的操作不会影响到父进程namespace）&lt;/p>
-&lt;p>&lt;strong>可以通过共享挂载机制传播挂载（主从挂载、共享挂载等）&lt;/strong>&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>network namespace:&lt;/p>
-&lt;p>提供网络资源的隔离，包括网络设备、协议栈、路由表、防火墙等等&lt;/p>
-&lt;/li>
-&lt;/ul>
-&lt;p>&lt;img src="https://images2018.cnblogs.com/blog/1259802/201804/1259802-20180410165500455-232801094.jpg" alt="img">&lt;/p>
-&lt;p>&lt;strong>默认的bridge模式&lt;/strong>：&lt;/p>
-&lt;p>每个容器有独立的network namespace，宿主机通过docker0网桥（虚拟网桥）来连接不同的network namespace，容器通过veth pair（虚拟以太网端口对，它们组成了一个数据的通道，数据从一个设备进入，就会从另一个设备出来）连接docker0网桥，设备的一端放在新创建的容器中，并命名为eth0。另一端放在主机中，以veth65f9这样类似的名字命名。&lt;/p>
-&lt;p>如果容器想主动和外界通信，或者外界想访问容器内的服务（访问宿主机的端口），实际上这是通过iptables来管理的（进行了转发和NAT转换等操作）&lt;/p>
-&lt;p>&lt;strong>host模式：&lt;/strong>&lt;/p>
-&lt;p>容器和宿主机共享network namespace，但其他namespace与宿主机隔离，容器用的是宿主机的ip与外界通信，性能较好但易产生端口冲突&lt;/p>
-&lt;p>&lt;strong>container模式：&lt;/strong>&lt;/p>
-&lt;p>新创建的容器若指定container模式，则和已经存在的容器共享一个network namespace，与此容器共享ip和协议栈&lt;/p>
-&lt;ul>
-&lt;li>
-&lt;p>user namespace&lt;/p>
-&lt;p>提供安全隔离，比如用户id，用户组，权限等，在子进程的user namespace中拥有新的用户和用户组，在父进程中的普通用户可能却成为子进程中namespace的超级用户，结构与pid namespace类似（树状结构），&lt;strong>子user namespace中的用户和用户组需要与父user namespace中的用户和用户组相对应（做映射）&lt;/strong>，这样这个user namespace才能与其他user namespace中的进程通信，甚至访问共享的文件（即对应到其他user namespace的用户和用户组并拥有相应的权限，如果没有相应的权限就不能在其他user namespace执行某些操作）&lt;/p>
-&lt;/li>
-&lt;/ul>
-&lt;h2 id="cgroups资源限制">cgroups——资源限制&lt;/h2>
-&lt;p>cgroups 是Linux内核提供的一种&lt;strong>可以限制单个进程或者多个进程所使用资源&lt;/strong>的机制，可以对 cpu，内存等资源实现精细化的控制（使用上限，使用范围等等），cgroup通过伪文件系统的形式进行控制&lt;/p>
-&lt;p>&lt;strong>涉及概念：&lt;/strong>&lt;/p>
-&lt;ul>
-&lt;li>
-&lt;p>task（任务）：表示系统的一个进程或线程&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>subsystem(子系统)：每个子系统就是一个资源控制器，有cpu、memory、io等等，/sys/fs/cgroup/下的目录就代表每个子系统&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>hierarchy（层级）：层级由一系列的cgroup以一个树状形式组成，由一个或多个子系统限制层级的资源使用量&lt;/p>
-&lt;/li>
-&lt;li>
-&lt;p>&lt;strong>cgroup&lt;/strong>（控制组）：核心概念，由cgroup组成层级，task放在cgroup中，从而控制进程的使用资源量，docker的实现方法就是在每个子系统中为每个容器创建cgroup&lt;/p>
-&lt;p>ps:笔者自己ipad画的图，有点简陋抱歉:P，以后文章的图有时间都会用Graffle好好画一下&lt;/p>
-&lt;/li>
-&lt;/ul>
-&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gp8pmb9h1aj30xg0pdq97.jpg" alt="image-20201104214438717">&lt;/p>
-&lt;h2 id="docker-架构总览">docker 架构总览&lt;/h2>
-&lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob68s57bpj311c0hm7ax.jpg" alt="image-20201209104859776">&lt;/p>
-&lt;h3 id="runc">runC&lt;/h3>
-&lt;p>是对于OCI标准的一个参考实现，是一个可以用于创建和运行容器的CLI(command-line interface)工具。runc直接与容器所依赖的cgroup/linux kernel等进行交互，负责为容器配置cgroup/namespace等启动容器所需的环境，创建启动容器的相关进程。runC基本上就是一个命令行小工具，它可以不用通过Docker引擎，直接就可以创建容器。这是一个独立的二进制文件，使用OCI容器就可以运行它。&lt;/p>
-&lt;h3 id="containerd">containerd&lt;/h3>
-&lt;p>containerd 是一个守护进程，它可以使用runC管理容器，并使用gRPC暴露容器的其他功能。docker engine面向client，containerd暴露出针对容器的增删改查的接口，Docker engine通过gRPC调用这些接口完成对于容器的操作，containerd最后会通过runc来实际运行容器。&lt;/p>
-&lt;h3 id="containerd-shim">containerd-shim&lt;/h3>
-&lt;p>containerd-shim称之为垫片，它使用runC命令行工具完成容器的启动、停止以及容器运行状态的监控。containerd-shim进程由containerd进程拉起，并持续存在到容器实例进程退出为止（和容器进程同生命周期）。这种设计的优点是，只要是符合OCI规范的容器，都可以通过containerd-shim来进行调用&lt;/p>
-&lt;h2 id="联合文件系统">联合文件系统&lt;/h2>
-&lt;p>&lt;img src="https://docs.docker.com/storage/storagedriver/images/container-layers.jpg" alt="Layers of a container based on the Ubuntu image">&lt;/p>
-&lt;p>&lt;strong>如果容器基于同一镜像构建，所有容器共享底部的镜像层，镜像层是read-only的，不可被修改，容器只是在镜像层之上创建了一个读写层，所有容器的修改都是在读写层当中修改，并不会影响到底部的镜像层，当容器删除了，读写层也就跟着删除了（除非commit做成了新的镜像）&lt;/strong>&lt;/p>
-&lt;p>&lt;strong>就算容器不是基于同一镜像构建，如果不同镜像中有相同的层（比如FROM是相同的），容器也会读取同一镜像层，这就是联合文件系统的精髓所在，副本只保存一份&lt;/strong>&lt;/p>
-&lt;p>&lt;img src="https://docs.docker.com/storage/storagedriver/images/sharing-layers.jpg" alt="Containers sharing same image">&lt;/p>
-&lt;h2 id="copy-on-writecow机制">Copy on write（COW）机制&lt;/h2>
-&lt;p>&lt;strong>当容器需要读取文件的时候&lt;/strong>&lt;/p>
-&lt;p>从最上层镜像开始查找，往下找，找到文件后读取并放入内存，若已经在内存中了，直接使用。(即，同一台机器上运行的docker容器共享运行时相同的文件)。&lt;/p>
-&lt;p>&lt;strong>当容器需要添加文件的时候&lt;/strong>&lt;/p>
-&lt;p>直接在最上面的容器层可写层添加文件，不会影响镜像层。&lt;/p>
-&lt;p>&lt;strong>当容器需要修改文件的时候&lt;/strong>&lt;/p>
-&lt;p>从上往下层寻找文件，找到后，&lt;strong>复制到容器可写层&lt;/strong>，然后，对容器来说，可以看到的是容器层的这个文件，看不到镜像层里的文件。容器在容器层修改这个文件（也就是覆盖）。&lt;/p>
-&lt;p>&lt;strong>如果是一个经常需要写的应用，最好使用volume而不是都写在容器层里，这样不会使容器层变得很大&lt;/strong>&lt;/p>
-&lt;p>&lt;strong>当容器需要删除文件的时候&lt;/strong>&lt;/p>
-&lt;p>从上往下层寻找文件，找到后在容器中记录删除。即，&lt;strong>并不会真正的删除文件，而是软删除&lt;/strong>。这将导致镜像体积只会增加，不会减少。&lt;strong>所以要写Dockerfile时如果要删除镜像中的文件，最好在同一层删除，否则只是软删除&lt;/strong>（因为如果真正的删除就会导致基于这个镜像构架内的其他容器无法再读取这个文件了）&lt;/p>
-&lt;h2 id="iptables默认规则只列举了部分">iptables默认规则（只列举了部分）&lt;/h2>
-&lt;ul>
-&lt;li>nat表：
-&lt;ul>
-&lt;li>如果数据源地址是docker0网段地址，且发往除docker 0外端口（即发往主机外），则做SNAT转换，修改为主机网卡ip地址&lt;/li>
-&lt;/ul>
-&lt;/li>
-&lt;li>filter表：
-&lt;ul>
-&lt;li>docker0发出的包可以中转给docker 0本身，即容器之间可以互相通信&lt;/li>
-&lt;li>docker0发出的包可以中转给其他宿主机上的其他网卡&lt;/li>
-&lt;/ul>
-&lt;/li>
-&lt;/ul>
-&lt;h2 id="参考资料">参考资料&lt;/h2>
-&lt;ul>
-&lt;li>《Docker容器与容器云 第2版》浙江大学SEL实验室·著&lt;/li>
-&lt;li>&lt;a href="https://www.jianshu.com/p/517e757d6d17">https://www.jianshu.com/p/517e757d6d17&lt;/a>&lt;/li>
-&lt;li>&lt;a href="https://www.cnblogs.com/sparkdev/tag/docker/default.html?page=1">https://www.cnblogs.com/sparkdev/tag/docker/default.html?page=1&lt;/a>&lt;/li>
-&lt;/ul>
-- https://jessestutler.github.io/posts/docker%E5%BA%95%E5%B1%82%E5%8E%9F%E7%90%86/ - 本站遵循 CC-BY-NC 4.0 协议</description></item><item><title>Docker基础知识</title><link>https://jessestutler.github.io/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/</link><pubDate>Sun, 07 Mar 2021 10:56:15 +0800</pubDate><guid>https://jessestutler.github.io/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/</guid><description>Jesse's Blog https://jessestutler.github.io/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/ -&lt;h1 id="docker">Docker&lt;/h1>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Jesse's Blog</title><link>https://jessestutler.github.io/</link><description>Recent content on Jesse's Blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><copyright>本站遵循 CC-BY-NC 4.0 协议</copyright><lastBuildDate>Thu, 10 Jun 2021 14:51:48 +0800</lastBuildDate><atom:link href="https://jessestutler.github.io/index.xml" rel="self" type="application/rss+xml"/><item><title>Docker基础知识</title><link>https://jessestutler.github.io/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/</link><pubDate>Sun, 07 Mar 2021 10:56:15 +0800</pubDate><guid>https://jessestutler.github.io/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/</guid><description>Jesse's Blog https://jessestutler.github.io/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/ -&lt;h1 id="docker">Docker&lt;/h1>
 &lt;h2 id="docker拉取镜像流程图">Docker拉取镜像流程图&lt;/h2>
 &lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob5syundsj318o0ogn1v.jpg" alt="截屏2020-08-12 上午10.33.14">&lt;/p>
 &lt;h2 id="docker-cli">Docker CLI&lt;/h2>
@@ -153,32 +46,32 @@
 &lt;blockquote>
 &lt;p>&lt;strong>docker run 创建容器并运行&lt;/strong>&lt;/p>
 &lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">docker run [选项] 镜像名 [参数]
--it 获取stdin并运行一个伪tty(默认是/bin/bash，可在命令最后自己指定shell)
---name 为容器指定一个名字(最好加上方便些，不然就要根据container id来指示是哪个容器)
-最好加上自己docker hub上的repo名，这样可以直接push到自己的repo，而不用tag再改镜像名，如 jesse/centos:tag
--d 后台运行，如果容器没有对外提供服务或运行前台程序则会立刻停止
--p 将容器内的端口与host os的端口绑定起来，如-p host_port:container_port可以通过访问host的某个端口来访问容器内的某个服务
--P 大写P,将镜像指定的暴露端口与host os上的随机端口绑定起来，一般需要Dockerfile中有EXPOSE进行结合
--v 将容器内的某个文件夹与host os的文件夹绑定起来（即数据同步，相当于挂载）
-1.如-v host_dir:container_dir 指定路径挂载，可以将容器内的指定文件夹数据同步到host os的指定目录上，这样删除容器时不至于数据丢失（比如容器内装有Mysql，这样删除容器就相当于把整个数据库都删了）
-2.如-v volume_name:container_dir 具名挂载，会指定卷名，可以通过docker volume inspect volume_name查看在Host os上的目录位置
---volumes-from 继承已有的容器的数据卷（共享目录）
-e.g:
-docker run --name centos -it centos /bin/bash
-&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;div class="highlight">&lt;pre tabindex="0" style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-shell" data-lang="shell">&lt;span style="display:flex;">&lt;span>docker run [选项] 镜像名 [参数]
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>-it 获取stdin并运行一个伪tty(默认是/bin/bash，可在命令最后自己指定shell)
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>--name 为容器指定一个名字(最好加上方便些，不然就要根据container id来指示是哪个容器)
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>最好加上自己docker hub上的repo名，这样可以直接push到自己的repo，而不用tag再改镜像名，如 jesse/centos:tag
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>-d 后台运行，如果容器没有对外提供服务或运行前台程序则会立刻停止
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>-p 将容器内的端口与host os的端口绑定起来，如-p host_port:container_port可以通过访问host的某个端口来访问容器内的某个服务
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>-P 大写P,将镜像指定的暴露端口与host os上的随机端口绑定起来，一般需要Dockerfile中有EXPOSE进行结合
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>-v 将容器内的某个文件夹与host os的文件夹绑定起来（即数据同步，相当于挂载）
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>1.如-v host_dir:container_dir 指定路径挂载，可以将容器内的指定文件夹数据同步到host os的指定目录上，这样删除容器时不至于数据丢失（比如容器内装有Mysql，这样删除容器就相当于把整个数据库都删了）
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>2.如-v volume_name:container_dir 具名挂载，会指定卷名，可以通过docker volume inspect volume_name查看在Host os上的目录位置
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>--volumes-from 继承已有的容器的数据卷（共享目录）
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>e.g:
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>docker run --name centos -it centos /bin/bash
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
 &lt;p>&lt;strong>docker ps 查看容器&lt;/strong>&lt;/p>
 &lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">不指定参数就是查看正在运行的容器
--a 查看所有容器（包括停止的容器）
--q 列出容器id
-&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;div class="highlight">&lt;pre tabindex="0" style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-shell" data-lang="shell">&lt;span style="display:flex;">&lt;span>不指定参数就是查看正在运行的容器
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>-a 查看所有容器（包括停止的容器）
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>-q 列出容器id
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
 &lt;p>docker rm [container id 或者 container name] 删除容器&lt;/p>
 &lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">不加参数需要指定container id或者container name，正在运行的容器无法删除
--f 强制删除容器
-docker ps -aq | xargs docker rm -f 强制删除所有容器
-&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;div class="highlight">&lt;pre tabindex="0" style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-shell" data-lang="shell">&lt;span style="display:flex;">&lt;span>不加参数需要指定container id或者container name，正在运行的容器无法删除
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>-f 强制删除容器
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>docker ps -aq | xargs docker rm -f 强制删除所有容器
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
 &lt;p>docker start 启动容器&lt;/p>
 &lt;p>docker restart 重启容器&lt;/p>
 &lt;p>docker stop 停止容器&lt;/p>
@@ -186,9 +79,9 @@ docker ps -aq | xargs docker rm -f 强制删除所有容器
 &lt;blockquote>
 &lt;p>docker logs 查看日志&lt;/p>
 &lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">-f 实时跟随
--t 显示时间
-&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;div class="highlight">&lt;pre tabindex="0" style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-shell" data-lang="shell">&lt;span style="display:flex;">&lt;span>-f 实时跟随
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>-t 显示时间
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
 &lt;p>docker top 显示容器内正在运行的进程&lt;/p>
 &lt;/blockquote>
 &lt;blockquote>
@@ -197,31 +90,32 @@ docker ps -aq | xargs docker rm -f 强制删除所有容器
 &lt;blockquote>
 &lt;p>&lt;strong>进入正在运行的容器&lt;/strong>&lt;/p>
 &lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">1.docker &lt;span style="color:#658b00">exec&lt;/span> [container] [command]
-在容器里跑一个命令
--it 与docker run相同，获取stdin并进入伪tty
-e.g:
-docker &lt;span style="color:#658b00">exec&lt;/span> -it [container id或者container name] bash ———— 在容器里跑一个新的bash并进入
-2.docker attach [container]
-直接进入到container当中
-&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;div class="highlight">&lt;pre tabindex="0" style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-shell" data-lang="shell">&lt;span style="display:flex;">&lt;span>1.docker &lt;span style="color:#658b00">exec&lt;/span> [container] [command]
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>在容器里跑一个命令
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>-it 与docker run相同，获取stdin并进入伪tty
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>e.g:
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>docker &lt;span style="color:#658b00">exec&lt;/span> -it [container id或者container name] bash ———— 在容器里跑一个新的bash并进入
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>2.docker attach [container]
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>直接进入到container当中
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
 &lt;p>docker cp 将容器中的文件拷贝到外部os或将外部os的文件拷贝至容器中&lt;/p>
 &lt;/blockquote>
 &lt;p>&lt;code>docker cp container:path dest_path&lt;/code>&lt;/p>
 &lt;blockquote>
 &lt;p>docker commit 由现有容器制作镜像&lt;/p>
 &lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">-a 指定作者名
--m 这次提交要发布的消息
-docker commit [选项] container [image[:tag]]
-&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="卷命令">卷命令&lt;/h3>
+&lt;div class="highlight">&lt;pre tabindex="0" style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-shell" data-lang="shell">&lt;span style="display:flex;">&lt;span>-a 指定作者名
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>-m 这次提交要发布的消息
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>docker commit [选项] container [image[:tag]]
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="卷命令">卷命令&lt;/h3>
 &lt;blockquote>
 &lt;p>docker volume&lt;/p>
 &lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">特别说明：不同的容器可以指定相同的volume
-ls 列出所有的卷
-inspect 查看指定卷的信息（可查看挂载在host os上具体哪个位置）
-&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="docker基本命令图">Docker基本命令图&lt;/h2>
+&lt;div class="highlight">&lt;pre tabindex="0" style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-shell" data-lang="shell">&lt;span style="display:flex;">&lt;span>特别说明：不同的容器可以指定相同的volume
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>ls 列出所有的卷
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>inspect 查看指定卷的信息（可查看挂载在host os上具体哪个位置）
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="docker基本命令图">Docker基本命令图&lt;/h2>
 &lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob60cd4z5j316t0u0k9j.jpg" alt="image-20200812163714285">&lt;/p>
 &lt;h2 id="docker层的概念">Docker层的概念&lt;/h2>
 &lt;p>&lt;img src="https://timgsa.baidu.com/timg?image&amp;amp;quality=80&amp;amp;size=b9999_10000&amp;amp;sec=1597383379693&amp;amp;di=8a718adcadd59dbfafaf89136bcf6efe&amp;amp;imgtype=0&amp;amp;src=http%3A%2F%2Fimg2020.cnblogs.com%2Fblog%2F2030366%2F202006%2F2030366-20200630103737429-2119801149.png" alt="img">&lt;/p>
@@ -239,91 +133,91 @@ inspect 查看指定卷的信息（可查看挂载在host os上具体哪个位�
 &lt;p>COPY &amp;ndash;from=指定的阶段名&lt;/p>
 &lt;p>可以将指定阶段中编译好的文件拷贝到当前构建环境中，甚至可以从指定镜像中进行拷贝&lt;/p>
 &lt;p>e.g:&lt;/p>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="color:#228b22"># 编译阶段 命名为 builder&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">FROM&lt;/span>&lt;span style="color:#cd5555"> golang:1.10.3 as builder&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#228b22"># ... 省略&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#228b22"># 运行阶段&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">FROM&lt;/span>&lt;span style="color:#cd5555"> scratch&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#228b22"># 从编译阶段的中拷贝编译结果到当前镜像中&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">COPY&lt;/span> --from=builder /build/server /&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;/li>
+&lt;div class="highlight">&lt;pre tabindex="0" style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="display:flex;">&lt;span>&lt;span style="color:#228b22"># 编译阶段 命名为 builder&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">FROM&lt;/span>&lt;span style="color:#cd5555"> golang:1.10.3 as builder&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#228b22"># ... 省略&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#228b22"># 运行阶段&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">FROM&lt;/span>&lt;span style="color:#cd5555"> scratch&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#228b22"># 从编译阶段的中拷贝编译结果到当前镜像中&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">COPY&lt;/span> --from=builder /build/server /&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;/li>
 &lt;/ul>
 &lt;blockquote>
 &lt;p>&lt;strong>docker build&lt;/strong> 根据Dockerfile构建镜像命令&lt;/p>
 &lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">docker build [选项] URL|PATH
--f 要用哪一个Dockerfile（指定Path）
--t 给镜像取名字，可加tag（name:tag）
-e.g:
-docker build -f Dockerfile -t name:tag . 将当前的文件夹作为环境构造镜像
-可以以PATH指定的目录作为上下文环境来构建镜像，最好是以空目录为上下文环境，里面只放Dockerfile（除非是放生成镜像必须的文件，因为上下文过大的话发送给daemon会很慢），也可以是指定URL作为构建环境，也就是Git Repository，比如Github
-&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;div class="highlight">&lt;pre tabindex="0" style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-shell" data-lang="shell">&lt;span style="display:flex;">&lt;span>docker build [选项] URL|PATH
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>-f 要用哪一个Dockerfile（指定Path）
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>-t 给镜像取名字，可加tag（name:tag）
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>e.g:
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>docker build -f Dockerfile -t name:tag . 将当前的文件夹作为环境构造镜像
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>可以以PATH指定的目录作为上下文环境来构建镜像，最好是以空目录为上下文环境，里面只放Dockerfile（除非是放生成镜像必须的文件，因为上下文过大的话发送给daemon会很慢），也可以是指定URL作为构建环境，也就是Git Repository，比如Github
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
 &lt;p>&lt;strong>FROM&lt;/strong>&lt;/p>
 &lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="color:#8b008b;font-weight:bold">FROM&lt;/span>&lt;span style="color:#cd5555"> image&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>Dockerfile都要以FROM开始，构建一个基本镜像&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>e.g:&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">FROM&lt;/span>&lt;span style="color:#cd5555"> scratch&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>这是Docker Hub上大多数镜像的选择，构建一个默认镜像&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;div class="highlight">&lt;pre tabindex="0" style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="display:flex;">&lt;span>&lt;span style="color:#8b008b;font-weight:bold">FROM&lt;/span>&lt;span style="color:#cd5555"> image&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>Dockerfile都要以FROM开始，构建一个基本镜像&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>e.g:&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">FROM&lt;/span>&lt;span style="color:#cd5555"> scratch&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>这是Docker Hub上大多数镜像的选择，构建一个默认镜像&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
 &lt;p>&lt;strong>RUN&lt;/strong>&lt;/p>
 &lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="color:#8b008b;font-weight:bold">RUN&lt;/span> shell_command&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>build镜像时所要执行的命令&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>一般以执行shell命令的格式最佳,默认是以RUN /bin/sh -c command形式执行的&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>一行写不下时可以通过&lt;span style="color:#cd5555">\换&lt;/span>行,执行多个命令最好用&amp;amp;&amp;amp;来相连，这样可以少些一些RUN，因为RUN、ADD、COPY这些命令写一个命令就会加一层，这样会使容器不那么臃肿庞大&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;div class="highlight">&lt;pre tabindex="0" style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="display:flex;">&lt;span>&lt;span style="color:#8b008b;font-weight:bold">RUN&lt;/span> shell_command&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>build镜像时所要执行的命令&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>一般以执行shell命令的格式最佳,默认是以RUN /bin/sh -c command形式执行的&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>一行写不下时可以通过&lt;span style="color:#cd5555">\换&lt;/span>行,执行多个命令最好用&amp;amp;&amp;amp;来相连，这样可以少些一些RUN，因为RUN、ADD、COPY这些命令写一个命令就会加一层，这样会使容器不那么臃肿庞大&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
 &lt;p>CMD&lt;/p>
 &lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="color:#8b008b;font-weight:bold">CMD&lt;/span> [&lt;span style="color:#cd5555">&amp;#34;executable&amp;#34;&lt;/span>,&lt;span style="color:#cd5555">&amp;#34;param1&amp;#34;&lt;/span>,&lt;span style="color:#cd5555">&amp;#34;param2&amp;#34;&lt;/span>]一般以这种格式最佳（注意都要双引号，因为是JSON格式）&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">CMD&lt;/span>是容器运行时所要执行的命令，旨在指定run容器时所要做的默认动作，跟docker run后跟一个command原理是一样的&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>特别说明：Dockerfile中只能有一个CMD,如果有多个CMD，只有最后一个生效&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;div class="highlight">&lt;pre tabindex="0" style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="display:flex;">&lt;span>&lt;span style="color:#8b008b;font-weight:bold">CMD&lt;/span> [&lt;span style="color:#cd5555">&amp;#34;executable&amp;#34;&lt;/span>,&lt;span style="color:#cd5555">&amp;#34;param1&amp;#34;&lt;/span>,&lt;span style="color:#cd5555">&amp;#34;param2&amp;#34;&lt;/span>]一般以这种格式最佳（注意都要双引号，因为是JSON格式）&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">CMD&lt;/span>是容器运行时所要执行的命令，旨在指定run容器时所要做的默认动作，跟docker run后跟一个command原理是一样的&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>特别说明：Dockerfile中只能有一个CMD,如果有多个CMD，只有最后一个生效&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
 &lt;p>ENTRYPOINT&lt;/p>
 &lt;/blockquote>
-&lt;pre>&lt;code>使用方法与CMD相同，但是docker run后面如果跟command会把CMD要执行的命令覆盖掉，ENTRYPOINT要执行的命令不会，甚至能给ENTRYPOINT追加参数
+&lt;pre tabindex="0">&lt;code>使用方法与CMD相同，但是docker run后面如果跟command会把CMD要执行的命令覆盖掉，ENTRYPOINT要执行的命令不会，甚至能给ENTRYPOINT追加参数
 &lt;/code>&lt;/pre>&lt;blockquote>
 &lt;p>LABEL&lt;/p>
 &lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="color:#8b008b;font-weight:bold">LABEL&lt;/span> &lt;span style="color:#00688b">key&lt;/span>=&lt;span style="color:#cd5555">&amp;#34;value&amp;#34;&lt;/span> &lt;span style="color:#00688b">key&lt;/span>=&lt;span style="color:#cd5555">&amp;#34;value&amp;#34;&lt;/span> ... &lt;span style="color:#00688b">key&lt;/span>=&lt;span style="color:#cd5555">&amp;#34;value&amp;#34;&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>给镜像加元数据，以键值对的形式多组追加，可以通过&lt;span style="color:#cd5555">\换&lt;/span>行,比如在LABEL里加上maintainer（维护者）等信息&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>可以通过docker inspect来查看&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;div class="highlight">&lt;pre tabindex="0" style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="display:flex;">&lt;span>&lt;span style="color:#8b008b;font-weight:bold">LABEL&lt;/span> &lt;span style="color:#00688b">key&lt;/span>=&lt;span style="color:#cd5555">&amp;#34;value&amp;#34;&lt;/span> &lt;span style="color:#00688b">key&lt;/span>=&lt;span style="color:#cd5555">&amp;#34;value&amp;#34;&lt;/span> ... &lt;span style="color:#00688b">key&lt;/span>=&lt;span style="color:#cd5555">&amp;#34;value&amp;#34;&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>给镜像加元数据，以键值对的形式多组追加，可以通过&lt;span style="color:#cd5555">\换&lt;/span>行,比如在LABEL里加上maintainer（维护者）等信息&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>可以通过docker inspect来查看&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
 &lt;p>EXPOSE&lt;/p>
 &lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">让运行时的容器在指定端口进行监听，也就是暴露端口,默认是tcp，可以指定udp，如EXPOSE 53/udp&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>可以通过docker run中的-p来覆盖，也可以通过-P将host os上的随机端口与暴露的端口进行绑定&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;div class="highlight">&lt;pre tabindex="0" style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="display:flex;">&lt;span>让运行时的容器在指定端口进行监听，也就是暴露端口,默认是tcp，可以指定udp，如EXPOSE 53/udp&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>可以通过docker run中的-p来覆盖，也可以通过-P将host os上的随机端口与暴露的端口进行绑定&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
 &lt;p>&lt;strong>ENV&lt;/strong>&lt;/p>
 &lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">为运行的容器设置环境变量&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">ENV&lt;/span> key value 一个ENV设置一个环境变量&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;div class="highlight">&lt;pre tabindex="0" style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="display:flex;">&lt;span>为运行的容器设置环境变量&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">ENV&lt;/span> key value 一个ENV设置一个环境变量&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
 &lt;p>ADD&lt;/p>
 &lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="color:#8b008b;font-weight:bold">ADD&lt;/span> &amp;lt;src&amp;gt;...&amp;lt;dest&amp;gt;&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>将src的文件，文件夹拷贝到dest，src可以是一个remote URL，dest可以是相对路径也可以是绝对路径，如果是相对路径那就是拷贝到WORKDIR/相对路径下&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>特别说明：dest如果是文件夹，想把文件拷贝到dest文件夹下，必须在最后加/&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">COPY&lt;/span>指令与ADD用法相同，但是ADD可以从远程url上拷贝，COPY只能拷贝本地宿主机上的文件&lt;span style="color:#a61717;background-color:#e3d2d2">
-&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
+&lt;div class="highlight">&lt;pre tabindex="0" style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-dockerfile" data-lang="dockerfile">&lt;span style="display:flex;">&lt;span>&lt;span style="color:#8b008b;font-weight:bold">ADD&lt;/span> &amp;lt;src&amp;gt;...&amp;lt;dest&amp;gt;&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>将src的文件，文件夹拷贝到dest，src可以是一个remote URL，dest可以是相对路径也可以是绝对路径，如果是相对路径那就是拷贝到WORKDIR/相对路径下&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>特别说明：dest如果是文件夹，想把文件拷贝到dest文件夹下，必须在最后加/&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>&lt;span style="color:#a61717;background-color:#e3d2d2">&lt;/span>&lt;span style="color:#8b008b;font-weight:bold">COPY&lt;/span>指令与ADD用法相同，但是ADD可以从远程url上拷贝，COPY只能拷贝本地宿主机上的文件&lt;span style="color:#a61717;background-color:#e3d2d2">
+&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;blockquote>
 &lt;p>WORKDIR&lt;/p>
 &lt;/blockquote>
-&lt;pre>&lt;code>设置进入容器时的工作目录，能使用ENV设置的环境变量
+&lt;pre tabindex="0">&lt;code>设置进入容器时的工作目录，能使用ENV设置的环境变量
 &lt;/code>&lt;/pre>&lt;h2 id="容器网络配置">容器网络配置&lt;/h2>
 &lt;blockquote>
 &lt;p>docker network&lt;/p>
 &lt;/blockquote>
-&lt;div class="highlight">&lt;pre style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4">&lt;code class="language-shell" data-lang="shell">connect 将一个容器部署进某个配置的网络当中，通过ls查看网络名
-ls 列出所有网络
-inspect 查看网络描述信息
-create 创建网络，可通过-d指定方式，有bridge，host等等，可通过--subnet指定子网和后缀
-...
-要让容器使用docker network创建的网络，在docker run时指定--net即可
-&lt;/code>&lt;/pre>&lt;/div>- https://jessestutler.github.io/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/ - 本站遵循 CC-BY-NC 4.0 协议</description></item><item><title>kubectl常用命令</title><link>https://jessestutler.github.io/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/</link><pubDate>Sun, 07 Mar 2021 10:30:17 +0800</pubDate><guid>https://jessestutler.github.io/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/</guid><description>Jesse's Blog https://jessestutler.github.io/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/ -&lt;h1 id="k8s命令">k8s命令&lt;/h1>
+&lt;div class="highlight">&lt;pre tabindex="0" style="background-color:#eed;-moz-tab-size:4;-o-tab-size:4;tab-size:4;">&lt;code class="language-shell" data-lang="shell">&lt;span style="display:flex;">&lt;span>connect 将一个容器部署进某个配置的网络当中，通过ls查看网络名
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>ls 列出所有网络
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>inspect 查看网络描述信息
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>create 创建网络，可通过-d指定方式，有bridge，host等等，可通过--subnet指定子网和后缀
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>...
+&lt;/span>&lt;/span>&lt;span style="display:flex;">&lt;span>要让容器使用docker network创建的网络，在docker run时指定--net即可
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>- https://jessestutler.github.io/posts/docker%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/ - 本站遵循 CC-BY-NC 4.0 协议</description></item><item><title>kubectl常用命令</title><link>https://jessestutler.github.io/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/</link><pubDate>Sun, 07 Mar 2021 10:30:17 +0800</pubDate><guid>https://jessestutler.github.io/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/</guid><description>Jesse's Blog https://jessestutler.github.io/posts/kubectl%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4/ -&lt;h1 id="k8s命令">k8s命令&lt;/h1>
 &lt;h2 id="引言">引言&lt;/h2>
 &lt;p>本文列举了一些kubectl的常用命令以及其对应的常用参数&lt;/p>
 &lt;p>kubectl的详细信息可参照：https://kubernetes.io/docs/reference/kubectl/overview/&lt;/p>
@@ -397,12 +291,6 @@ create 创建网络，可通过-d指定方式，有bridge，host等等，可通�
 &lt;h2 id="引言">引言&lt;/h2>
 &lt;p>本文参照《Kubernetes in Action中文版》及其一些网上资料，对K8s中基础的Resource进行了概析。本文会持续更新。&lt;/p>
 &lt;h2 id="pod">pod&lt;/h2>
-&lt;ul>
-&lt;li>
-&lt;p>为什么需要pod?&lt;/p>
-&lt;p>主要目的是由多个进程组成的一个应用程序，多个进程不能聚集在一个容器中运行**（容器的设计目的就是只运行一个进程，如果容器中运行多个不相关的进程，比如需要包含一种进程崩溃后能够重启的机制，同时将进程的活动记录记录到相同的标准输出中，我们很难确定每个进程分别记录了什么），我们用pod来封装容器，将其作为k8s的基本单位**，既可以做到一个进程单独运行于一个容器当中，容器之间相互隔离，保持了容器的特性，又能同时运行一些密切相关的进程，为他们提供相同的环境。&lt;/p>
-&lt;/li>
-&lt;/ul>
 &lt;p>pod中的容器共享network namespace，容器中运行的进程之间能够通过端口来相互通信（同一个pod中的容器拥有相同的loopback网路接口，可以通过发往localhost与其他容器中的进程相互通信）&lt;/p>
 &lt;ul>
 &lt;li>如何决定多个容器是否要放入同一个pod中？
@@ -417,11 +305,15 @@ create 创建网络，可通过-d指定方式，有bridge，host等等，可通�
 &lt;ul>
 &lt;li>
 &lt;p>liveness probe——存活探针（&lt;strong>在pod running时检测&lt;/strong>）&lt;/p>
-&lt;p>通过 TCP、HTTP 或者命令行方式对应用就绪进行检测。对于 HTTP 类型探针，Kubernetes 会定时访问该地址，如果该地址的返回码不在 200 到 400 之间，则认为该容器不健康，会杀死该容器重建新的容器。&lt;/p>
+&lt;ul>
+&lt;li>在容器内部执行一个命令，若该命令的退出状态码为0，则健康&lt;/li>
+&lt;li>通过容器的ip和端口进行TCP检查，若端口能被访问到，则容器健康&lt;/li>
+&lt;li>调用http get方法，若响应码在200到400之间，则健康&lt;/li>
+&lt;/ul>
 &lt;/li>
 &lt;li>
 &lt;p>readiness probe——就绪探针（&lt;strong>在pod就绪前检测&lt;/strong>）&lt;/p>
-&lt;p>对于启动缓慢的应用，为了避免在应用启动完成之前将流量导入。Kubernetes 支持业务容器提供一个 readiness 探针，对于 HTTP 类型探针，Kubernetes 会定时访问该地址，如果该地址的返回码不在 200 到 400 之间，则认为该容器无法对外提供服务，不会把请求调度到该容器。&lt;/p>
+&lt;p>对于启动缓慢的应用，为了避免在应用启动完成之前将流量导入。Kubernetes 支持业务容器提供一个 readiness 探针，探测规则同存活探针&lt;/p>
 &lt;/li>
 &lt;/ul>
 &lt;h3 id="容器重启策略">容器重启策略&lt;/h3>
@@ -442,7 +334,7 @@ create 创建网络，可通过-d指定方式，有bridge，host等等，可通�
 &lt;/li>
 &lt;li>
 &lt;p>preferredDuringSchedulingIgnoredDuringExecution（软限制）：&lt;/p>
-&lt;p>&lt;strong>偏好&lt;/strong>将pod调度到满足pod指定条件的node上，如果节点不满足也没关系，&lt;strong>还是可以将pod调度到其他节点上&lt;/strong>&lt;/p>
+&lt;p>&lt;strong>偏好&lt;/strong>将pod调度到满足pod指定条件的node上，如果没有满足指定条件的节点没关系，&lt;strong>还是可以将pod调度到其他节点上&lt;/strong>&lt;/p>
 &lt;/li>
 &lt;/ul>
 &lt;p>&lt;strong>IgnoredDuringExecution&lt;/strong>表示纵使节点标签发生改变，pod仍可以在节点上继续运行&lt;/p>
@@ -458,7 +350,7 @@ create 创建网络，可通过-d指定方式，有bridge，host等等，可通�
 &lt;/li>
 &lt;/ul>
 &lt;h3 id="污点和容忍度">污点和容忍度&lt;/h3>
-&lt;p>污点其实就是节点的&lt;strong>反亲和性&lt;/strong>，用处在于某些pod需要调度到特定节点上，而其他pod不能调度到这些节点上（就需要给这些pod加上容忍度），或者是某些节点挂掉了，需要驱逐某些pod，或者加上容忍度，容忍在指定时间内节点可以恢复，否则就要被驱逐&lt;/p>
+&lt;p>污点其实就是节点的&lt;strong>反亲和性&lt;/strong>，用处在于某些pod需要调度到特定节点上，而其他pod不能调度到这些节点上（就需要给pod加上容忍度），或者是某些节点挂掉了，需要驱逐某些pod，或者加上容忍度，容忍在指定时间内节点可以恢复，否则就要被驱逐&lt;/p>
 &lt;p>使用 kubectl taint nodes node1 key=value:NoSchedule命令给node加上taint，用法类似kubectl label，要说明的是NoSchedule，有以下几种动作：&lt;/p>
 &lt;ul>
 &lt;li>NoSchedule，如果node打上了taint，且pod没有指明tolerations，则pod不会被调度到该节点上&lt;/li>
@@ -477,28 +369,28 @@ create 创建网络，可通过-d指定方式，有bridge，host等等，可通�
 &lt;p>两种限制：&lt;/p>
 &lt;ul>
 &lt;li>
-&lt;p>requests:&lt;/p>
+&lt;p>requests（CPU shares）:&lt;/p>
 &lt;p>&lt;strong>节点上pod的requests总和不能超过节点可用资源的100%&lt;/strong>，k8s的调度器调度也是根据requests来调度，如果pod的requests&lt;strong>小于&lt;/strong>（节点可使用资源总量-其他pod申请量），即使其他pod的&lt;strong>实际使用资源量&lt;/strong>未达到他们所申请量，这个pod也不可以调度到这个节点上。当未进行limits限制时，pod的实际使用资源量是可以&lt;strong>超过&lt;/strong>申请量的，比如有pod暂时不需要CPU时，而有计算密集型pod需要全力使用CPU时，便可以超过申请量全部占用CPU。&lt;/p>
 &lt;/li>
 &lt;li>
-&lt;p>limits（底层实际上是cgrop进行限制）:&lt;/p>
-&lt;p>&lt;strong>节点上pod的limits总和可以超过节点可用资源的100%，我们称之为超卖&lt;/strong>，CPU进行limits限制时，进程分不到比限制量更多的CPU，而内存与CPU不同，因为内存一旦分配给进程，想要回收就需要进程主动释放，所以如果有恶意pod或者故障pod，或者是贪婪的进程就有可能吃掉节点上所有的内存，需要进行限制，&lt;strong>进程如果申请超过limits的量&lt;/strong>或者节点使用总量超过100%就有可能会造成OOM(out of memory)，进程就会根据策略被杀死（linux OOM_reaper subsystem）&lt;/p>
+&lt;p>limits（CPU quota + CPU period):&lt;/p>
+&lt;p>&lt;strong>节点上pod的limits总和可以超过节点可用资源的100%，我们称之为超卖&lt;/strong>，CPU进行limits限制时，进程分不到比限制量更多的CPU，而内存与CPU不同，因为内存一旦分配给进程，想要回收就需要进程主动释放，&lt;strong>所以如果有恶意pod或者故障pod&lt;/strong>，或者是贪婪的进程就有可能吃掉节点上所有的内存，需要进行限制，&lt;strong>进程如果申请超过limits的量&lt;/strong>或者节点使用总量超过100%就有可能会造成OOM(out of memory)，进程就会根据策略被杀死（linux OOM_reaper subsystem）&lt;/p>
 &lt;/li>
 &lt;/ul>
 &lt;h4 id="pod-qos">pod QoS&lt;/h4>
 &lt;p>三种等级（优先级从低到高）：&lt;/p>
 &lt;ul>
-&lt;li>BestEffort&lt;/li>
-&lt;li>Burstable&lt;/li>
-&lt;li>Guranteed&lt;/li>
+&lt;li>BestEffort（未设置limit和request）&lt;/li>
+&lt;li>Burstable（limit和request设置不相等）&lt;/li>
+&lt;li>Guranteed（limit和request设置相等）&lt;/li>
 &lt;/ul>
-&lt;p>当资源不够时，比如节点内存不够用时，就需要杀死pod中的进程，根据优先级&lt;strong>从低到高来杀死&lt;/strong>&lt;/p>
+&lt;p>当资源不够时，比如节点内存不够用时，就需要杀死pod，根据优先级&lt;strong>从低到高来杀死&lt;/strong>&lt;/p>
 &lt;p>那怎么来决定pod的QoS class呢，粗略的规则就是，BestEffort未声明requests和limits；Guranteed必须声明requests和limits，且两者相等；其他情况皆为Burstable（比如只有requests或者limits，requests&amp;lt;limits等），细致的规则可以参考：&lt;/p>
 &lt;p>&lt;strong>单容器pod&lt;/strong>：&lt;/p>
 &lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEly1gnu8y3ll3pj32nb0u0qv5.jpg" alt="img">&lt;/p>
 &lt;p>&lt;strong>多容器pod:&lt;/strong>&lt;/p>
 &lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEly1gnu8yai41bj32m20u0qv5.jpg" alt="img">&lt;/p>
-&lt;p>&lt;strong>当资源不够时，不同等级的情况下先杀死QoS等级低的Pod中的进程，相同等级的pod根据进程已使用资源量和可用资源量的比较来杀死进程&lt;/strong>&lt;/p>
+&lt;p>&lt;strong>当资源不够时，不同等级的情况下先杀死QoS等级低的Pod，相同等级的pod根据已使用资源量和可用资源量的比较来杀死&lt;/strong>&lt;/p>
 &lt;h3 id="limitrange和resourcequota">LimitRange和ResourceQuota&lt;/h3>
 &lt;p>LimitRange是用来限制某个命名空间&lt;strong>单个pod&lt;/strong>的可用资源，API server中存在LimitRange admission control插件，当发起Pod Post请求时就需要进行检查或者添加字段，比如pod层面可以限定pod中所有容器的最小requests总和或最大limits总量，容器层面可以限定默认的requests和默认的limits，还可以限定PVC最大申请量等。不同命名空间可以有不同的LimitRange，但是LimitRange无法限制命名空间中所有pod的资源总量，这需要ResourceQuota&lt;/p>
 &lt;p>ResourceQuota是用来限制某个命名空间&lt;strong>所有pod&lt;/strong>的可用资源，限定命名空间中所有pod requests总和或者limits总和，但是要&lt;strong>注意的是&lt;/strong>，这样pod必须限定resources字段，不然ResourceQuota无法确定已用的requests和limits量，或者明确给命名空间声明一个LimitRange&lt;/p>
@@ -510,6 +402,38 @@ create 创建网络，可通过-d指定方式，有bridge，host等等，可通�
 &lt;li>单metric：如果是单资源计算的话，根据pod的&lt;code>[实际使用资源量之和/目标值]&lt;/code>再向上取整&lt;/li>
 &lt;li>多metrics：多资源计算的话，取各单metric的计算出的数量的Max值&lt;/li>
 &lt;/ul>
+&lt;h3 id="高级调度">高级调度&lt;/h3>
+&lt;h4 id="priorityclass">PriorityClass&lt;/h4>
+&lt;p>PriorityClass也是一种resource，用户可以指定value为0-1000000000之间的优先级，然后通过在Pod spec中指定PriorityClassName。优先级越高的Pod，在&lt;strong>多个Pod同时在队列中等待调度时可以优先被调度&lt;/strong>，而且如果存在节点资源不够的情况下，&lt;strong>优先级低的Pod可以被优先级高的Pod抢占，优先级低的Pod被驱逐而等待重新调度&lt;/strong>&lt;/p>
+&lt;h4 id="pod打散">Pod打散&lt;/h4>
+&lt;p>&lt;a href="https://kubernetes.io/zh/docs/concepts/workloads/pods/pod-topology-spread-constraints/">https://kubernetes.io/zh/docs/concepts/workloads/pods/pod-topology-spread-constraints/&lt;/a>&lt;/p>
+&lt;p>将Pod均匀分布到指定拓扑域当中，这个拓扑域可以是Region,Zone或者Node。使各拓扑域中的Pod数量均匀分布。&lt;/p>
+&lt;h3 id="pod调度">pod调度&lt;/h3>
+&lt;p>两个主要队列：activeQ,unschedulableQ，需要调度的pod加入activeQ，调度失败的pod加入unschedulableQ&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>过滤阶段&lt;/p>
+&lt;p>比如筛选可用nodes，比如node资源是否足够，pod指定的卷或者端口是否可用，是否指定了node或者可容忍taint等&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>打分阶段&lt;/p>
+&lt;p>有pod亲和性，node亲和性打分，还有主要的根据节点水位打分：&lt;/p>
+&lt;ul>
+&lt;li>优先打散，就是根据 （节点可分配量-pod请求量）/节点可分配量，优先选择空闲资源比例最高的节点&lt;/li>
+&lt;li>优先堆叠，根据 已分配量/节点可分配量，优先选择负载高的节点&lt;/li>
+&lt;li>根据碎片率，按照CPU和内存两种资源来说，碎片率=1-Abs[CPU(Request / Allocatable) - Mem(Request / Allocatable)]&lt;/li>
+&lt;/ul>
+&lt;/li>
+&lt;/ul>
+&lt;h3 id="pod删除">pod删除&lt;/h3>
+&lt;p>pod删除并不是立即删除，默认设置的grace-period是30秒，允许pod进行一些清理工作之后退出。&lt;/p>
+&lt;ul>
+&lt;li>pod被标记为Terminating状态&lt;/li>
+&lt;li>如果pod有preStop回调函数被设置，则执行，允许执行回调函数时间超过一点grace-period&lt;/li>
+&lt;li>发送SIGTERM信号给pod中的所有容器的进程1&lt;/li>
+&lt;li>pod从service的endpoints，replicaset等管理中移除&lt;/li>
+&lt;li>超过grace-period仍未删除，则触发强制删除，发送SIGKILL信号给所有容器中的进程&lt;/li>
+&lt;/ul>
 &lt;h2 id="replicationcontroller">ReplicationController&lt;/h2>
 &lt;p>rc负责创建和管理pod的多个副本，其有三个部件：&lt;/p>
 &lt;ul>
@@ -518,7 +442,7 @@ create 创建网络，可通过-d指定方式，有bridge，host等等，可通�
 &lt;p>用来标识pod，rc&lt;strong>只负责管理创建rc时指定标签的pod&lt;/strong>（&lt;strong>只管自己家的孩子&lt;/strong>），如果在这之后pod更改了标签，就脱离了rc的管理范围（pod相当于手动创建，无人管理，变成了孤儿），rc认为现有pod数与replicas不符合（即少了一个pod），会根据template创建新的pod&lt;/p>
 &lt;/li>
 &lt;li>
-&lt;p>rplica count（副本个数）：&lt;/p>
+&lt;p>replica count（副本个数）：&lt;/p>
 &lt;p>指定pod副本数&lt;/p>
 &lt;/li>
 &lt;li>
@@ -572,27 +496,26 @@ create 创建网络，可通过-d指定方式，有bridge，host等等，可通�
 &lt;p>既可以访问服务的集群ip来访问，也可以访问节点指定端口来访问&lt;/p>
 &lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob3wn28e1j31400u0e8d.jpg" alt="image-20200917195909101">&lt;/p>
 &lt;/li>
+&lt;/ul>
+&lt;/li>
 &lt;li>
 &lt;p>LoadBalancer：将service的type指定为LoadBalancer，LoadBalancer需要有独有的公网ip，专门由负责负载均衡的机子来做重定向， 机制与nodeport一致（&lt;strong>只不过多做了一次数据流重定向&lt;/strong>）&lt;/p>
 &lt;p>Client &amp;ndash;&amp;gt; LoadBalancer &amp;ndash;&amp;gt; 节点的指定端口&amp;ndash;&amp;gt;cluster服务&amp;ndash;&amp;gt; pod&lt;/p>
 &lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob3wrz939j31400u0b2k.jpg" alt="image-20200917200648198">&lt;/p>
-&lt;/li>
-&lt;/ul>
 &lt;p>​ 总结：Load Balancer &amp;ndash;&amp;gt; Node Port &amp;ndash;&amp;gt; cluster service 层层往下&lt;/p>
-&lt;ul>
+&lt;/li>
 &lt;li>
 &lt;p>Ingress：&lt;/p>
 &lt;p>通过外加的ingress controller来进行反向代理和负载均衡，当客户端向ingress发送http请求，根据主机名和路径分发到对应的服务（&lt;strong>这样既可以只用一个公网ip就可以为多服务做负载均衡和对外暴露，又可以避免nodeport开放过多端口可能造成的安全问题，因为运行k8s需要关闭防火墙&lt;/strong>），通过与该服务相关联的Endpoint来查看ip，然后将客户端的请求转发给其中一个pod&lt;/p>
 &lt;p>Client &amp;ndash;&amp;gt; ingress controller &amp;ndash;&amp;gt; pod&lt;/p>
-&lt;p>Ingress controller实现方案： nginx，traefix，HAproxy等等&lt;/p>
+&lt;p>Ingress controller实现方案： nginx，traefik，HAproxy等等&lt;/p>
 &lt;p>ingress参考资料：https://www.cnblogs.com/linuxk/p/9706720.html&lt;/p>
 &lt;p>ingress controller通常通过daemonset实现，在每个node上跑一个pod（如nginx），它会监听ingress的变化，一旦有新的ingress就根据模板生成配置然后写入pod中，然后reload。ingress就是转发规则，要发往哪些service，指定什么URL来转发到相应的service。&lt;/p>
 &lt;/li>
-&lt;/ul>
-&lt;/li>
 &lt;li>
 &lt;p>headless服务：&lt;/p>
-&lt;p>将服务的clusterIP字段设置为none，k8s便不会为其分配集群ip，用dns查找服务会返回所有pod ip，客户端会直接访问pod，而不是经过服务代理&lt;/p>
+&lt;p>将服务的clusterIP字段设置为none，k8s便不会为其分配集群ip，用dns查找pod的DNS记录，dns服务器会直接返回pod ip&lt;/p>
+&lt;p>&lt;code>&amp;lt;pod-name&amp;gt;.&amp;lt;svc-name&amp;gt;.&amp;lt;namespace&amp;gt;.svc.cluster.local&lt;/code>&lt;/p>
 &lt;/li>
 &lt;li>
 &lt;p>External Name:&lt;/p>
@@ -602,6 +525,7 @@ create 创建网络，可通过-d指定方式，有bridge，host等等，可通�
 &lt;h2 id="volume">volume&lt;/h2>
 &lt;p>&lt;strong>使用卷来让容器之间共享文件或者持久化文件&lt;/strong>&lt;/p>
 &lt;h3 id="volume的种类">volume的种类&lt;/h3>
+&lt;p>后三者比较普遍&lt;/p>
 &lt;ul>
 &lt;li>
 &lt;p>emptyDir（&lt;strong>一个pod中的多个容器共享&lt;/strong>）:&lt;/p>
@@ -643,7 +567,7 @@ create 创建网络，可通过-d指定方式，有bridge，host等等，可通�
 &lt;h3 id="参数形式">参数形式：&lt;/h3>
 &lt;ul>
 &lt;li>
-&lt;p>&amp;ndash;from-literal&lt;em>key&lt;/em>value 直接用key*value形式定义变量&lt;/p>
+&lt;p>&amp;ndash;from-literal &lt;em>key&lt;/em> value 直接用key*value形式定义变量&lt;/p>
 &lt;/li>
 &lt;li>
 &lt;p>&amp;ndash;from-file*[file or directory] 读取文件为变量，如果没指定key，则直接用file的名字为key，value为file中的数据，如果读取的是整个文件夹，则文件夹下所有的文件都会被列为key*value&lt;/p>
@@ -680,20 +604,20 @@ create 创建网络，可通过-d指定方式，有bridge，host等等，可通�
 &lt;p>deployment用于部署应用并以声明的形式升级应用&lt;/p>
 &lt;p>创建deployment时，replicaset也会跟着创建，由rs来管理pod，deployment管理多个rs&lt;/p>
 &lt;p>&lt;strong>更改deployment的&lt;/strong>pod模板&lt;strong>即可完成升级，由k8s的控制器操作完成&lt;/strong>&lt;/p>
-&lt;h3 id="升级方式">升级方式&lt;/h3>
+&lt;h3 id="发布方式">发布方式&lt;/h3>
 &lt;ul>
 &lt;li>
-&lt;p>蓝绿部署&lt;/p>
+&lt;p>蓝绿发布&lt;/p>
 &lt;p>在运行新版本的pod之前，service流量始终定位到旧版本pod，一旦确定新版本功能运行正常，修改service的选择器，定位到新版本的pod，删除旧版本的replicaset&lt;/p>
 &lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob3wyc4q2j31wu0u0u13.jpg" alt="image-20201021161437006">&lt;/p>
 &lt;/li>
 &lt;li>
-&lt;p>滚动升级&lt;/p>
+&lt;p>滚动发布&lt;/p>
 &lt;p>新的rs控制新版本的pod，通过更改新旧rs的期望数量来弹性扩缩旧版本与新版本的pod数量，新版本pod一点点增多，旧版本pod一点点减少，直到所有更新为止&lt;/p>
 &lt;p>&lt;img src="https://tva1.sinaimg.cn/large/008eGmZEgy1gob3x1q66qj31ou0u0npe.jpg" alt="6D21A0ED0EAF37931D60F5EF5098258D">&lt;/p>
 &lt;/li>
 &lt;li>
-&lt;p>金丝雀升级&lt;/p>
+&lt;p>金丝雀发布（灰度发布）&lt;/p>
 &lt;p>一小部分pod升级为新版本，牺牲一小部分用户的体验（beta版本），如果新版本适用则全部升级完成，否则回滚到上个版本&lt;/p>
 &lt;/li>
 &lt;/ul>
@@ -739,7 +663,7 @@ create 创建网络，可通过-d指定方式，有bridge，host等等，可通�
 &lt;/ul>
 &lt;h2 id="statefulset">StatefulSet&lt;/h2>
 &lt;p>&lt;strong>用来维护有状态应用&lt;/strong>，因为有状态应用可能需要主机名，ip等不变&lt;/p>
-&lt;p>statefulset维护的pod副本名是可预知的，按照statefulset名称加顺序索引值组成，每次扩缩容都是扩缩索引最高的那个&lt;/p>
+&lt;p>statefulset维护的pod副本名是可预知的，按照statefulset名称加顺序索引值组成，pod的序号是递增的，只有在低序号的pod处于running和ready状态之后高序号的pod才会部署，缩容也是同个道理，要在高序号已经停止和删除之后才会终止低序号pod。K8S原生的statefulset不能删除[0,N-1]之间序号的某个pod&lt;/p>
 &lt;p>statefulset对于有状态应用做出的改变：&lt;/p>
 &lt;ul>
 &lt;li>
@@ -754,6 +678,15 @@ create 创建网络，可通过-d指定方式，有bridge，host等等，可通�
 &lt;p>如果statefulset维护的pod被删除了，与replicaset相同，statefulset会重新创建pod，但这个pod可能会调度到其他节点上，对于有状态应用来说，有状态的pod应该挂载原来相同的存储，这就需要pvc和pv，创建一个statefulset的时候，不仅需要写pod模板，还需要写pvc，&lt;strong>statefulset对每个pod都创建一个或多个独立的pvc&lt;/strong>，因为挂载的pvc不变，所以新实例读取的仍然是旧实例的数据&lt;/p>
 &lt;p>注意：&lt;/p>
 &lt;p>如果pod被意外删除，&lt;strong>其挂载的pvc不会被删除&lt;/strong>，因为如果pvc被删除，其绑定的pv可能会被回收或者删除，那其上的数据就丢失了，所以无论是缩容还是意外删除了statefulset的pod，都会保留pvc，意外缩容了statefulset之后仍然能通过扩容，将pod重新挂载原来丢失了挂载的pvc，但是statefulset只能&lt;strong>线性缩容&lt;/strong>，不能在有一个实例不健康的时候进行缩容，这时同时有两个pod下线，那数据就丢失了。如果想删除pv，需要&lt;strong>手动&lt;/strong>删除绑定的pvc&lt;/p>
+&lt;/li>
+&lt;/ul>
+&lt;p>tips:&lt;/p>
+&lt;ul>
+&lt;li>
+&lt;p>Statefulset因为pod启动有先后关系，所以角色是根据id号定死的，比如mysql statefulset的pod-0为master节点，其他序号大于0的pod为slave节点，但是如果需要场景下（比如redis哨兵模式）master挂了要slave能够成为master，那么statefulset就不好实现，需要引入Operator（有可能是Master一直在重启，那么就一直没主节点，其他pod的序号是不会动的）&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>Statefulset和Daemonset都可以滚动更新，和deployment的功能相同，主要是依赖于有个api资源叫&lt;strong>controllerRevision&lt;/strong>，保存了控制器的api声明（Yaml）的历史版本，每个版本对应一个controllerRevsion&lt;/p>
 &lt;/li>
 &lt;/ul>
 &lt;h2 id="serviceaccount">ServiceAccount&lt;/h2>

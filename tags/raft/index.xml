@@ -15,4 +15,17 @@ Candidate收到Leader（已经暂时选出的）的RPC请求，发现其任期�
 Leader&amp;mdash;&amp;gt;Follower:
 通过RPC的回复发现自己的任期已过期（有比自己更新的任期），退回到Follower
 Candidate&amp;mdash;&amp;gt;Follower：
-输掉选举（收到了来自己已选出的leader的RPC，但要确定自己的任期至少和Leader的任期相同，参考第3步） 通过RPC的回复发现自己的任期已过期（有比自己更新的任期），退回到Follower Log Replication 首先要说明的是，Leader只追加条目（entry）而不修改或删除entry</description></item></channel></rss>
+输掉选举（收到了来自己已选出的leader的RPC，但要确定自己的任期至少和Leader的任期相同，参考第3步） 通过RPC的回复发现自己的任期已过期（有比自己更新的任期），退回到Follower Log Replication 首先要说明的是，Leader只追加条目（entry）而不修改或删除entry
+Leader通过AppendEntries RPC来加条目复制到其他servers上，如果有server挂了他也会一直重复尝试发送。
+Follower如何确定自己Leader发过来的条目可以追加？
+Leader发送的条目会包括索引号和任期数，如果Follwer没有找到相同索引号和任期数的条目，就拒绝请求，找到了就说明这个条目之前的条目都是相同的
+条目什么时候应该被apply到各个机器上？
+我们称之为提交（commited），当条目已经被复制到大多数的servers上（维护一个replicas来确定），这些条目（包括之前的未提交的条目，前leader剩下的未提交的条目）就都会被提交，每台server都会维护一个highest index表示最后的已经提交的条目，已表示这之前的条目都已提交
+Leader crash所导致的log不一致问题 这个就是关键要解决的，Leader崩溃（然后发生Leader exchange）可能会导致一系列各server上log不一致的问题（前leader可能还未完全复制给所有机器），Follower可能会带有现Leader没有的log，或者更复杂的不一致问题，那如何解决呢？
+覆盖。
+如果有不一致的log，Leader需要找到和Follower的日志中相同的最后一个条目（也就是索引号和任期数相同，说明之前的条目都相同），然后将后面不一样的条目都覆盖成Leader的（当然缺少的话就直接追加）。
+解决方法：当新leader出现时，他会先进行一致性检查，他会维护一个nextIndex，表示下一个要发送给follower的条目的索引号，当follower拒绝追加请求时（发现不一致），leader就减小nextIndex的大小，直到条目相同为止，然后leader把这之后的条目全部覆盖掉Follower的日志
+Safety 当leader提交的时候万一发生Follower崩溃的情况，而Follower复原之后又当上新leader，可能会出现覆盖之前已经提交的entry的情况，继而造成不同server最后执行了不同command的情况
+解决方法：加上election restriction，对于candidate必须要涵盖之前已经所有已经提交的entry，也就是说就算candidate获得了大多数票数的情况下，必须以涵盖所有已提交entry为前提，否则不能赢得选举
+那如何保证candidate涵盖了所有已经提交的条目呢？
+candidate的日志必须是最新的（up-to-date）。怎样规定最新呢？两个server的日志如果任期更新者就是最新的，或者任期相同而拥有更长索引者就是最新的。如果candidate发送RequestVote RPC，而其log不比voter新，voter就要拒绝投票给candidate。</description></item></channel></rss>
