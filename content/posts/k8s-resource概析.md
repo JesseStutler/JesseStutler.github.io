@@ -15,13 +15,7 @@ comment : true
 
 本文参照《Kubernetes in Action中文版》及其一些网上资料，对K8s中基础的Resource进行了概析。本文会持续更新。
 
-
-
 ## pod
-
-- 为什么需要pod?
-
-  主要目的是由多个进程组成的一个应用程序，多个进程不能聚集在一个容器中运行**（容器的设计目的就是只运行一个进程，如果容器中运行多个不相关的进程，比如需要包含一种进程崩溃后能够重启的机制，同时将进程的活动记录记录到相同的标准输出中，我们很难确定每个进程分别记录了什么），我们用pod来封装容器，将其作为k8s的基本单位**，既可以做到一个进程单独运行于一个容器当中，容器之间相互隔离，保持了容器的特性，又能同时运行一些密切相关的进程，为他们提供相同的环境。
 
 pod中的容器共享network namespace，容器中运行的进程之间能够通过端口来相互通信（同一个pod中的容器拥有相同的loopback网路接口，可以通过发往localhost与其他容器中的进程相互通信）
 
@@ -30,21 +24,17 @@ pod中的容器共享network namespace，容器中运行的进程之间能够通
   - 它们代表的是一个整体还是相互独立的组件
   - 它们必须一起扩缩容还是可以分别进行
 
-
-
 ### liveness probe & readiness probe
 
 - liveness probe——存活探针（**在pod running时检测**）
-
-  通过 TCP、HTTP 或者命令行方式对应用就绪进行检测。对于 HTTP 类型探针，Kubernetes 会定时访问该地址，如果该地址的返回码不在 200 到 400 之间，则认为该容器不健康，会杀死该容器重建新的容器。
-
   
+  - 在容器内部执行一个命令，若该命令的退出状态码为0，则健康
+  - 通过容器的ip和端口进行TCP检查，若端口能被访问到，则容器健康
+  - 调用http get方法，若响应码在200到400之间，则健康
 
 - readiness probe——就绪探针（**在pod就绪前检测**）
-
-  对于启动缓慢的应用，为了避免在应用启动完成之前将流量导入。Kubernetes 支持业务容器提供一个 readiness 探针，对于 HTTP 类型探针，Kubernetes 会定时访问该地址，如果该地址的返回码不在 200 到 400 之间，则认为该容器无法对外提供服务，不会把请求调度到该容器。
-
   
+  对于启动缓慢的应用，为了避免在应用启动完成之前将流量导入。Kubernetes 支持业务容器提供一个 readiness 探针，探测规则同存活探针
 
 ### 容器重启策略
 
@@ -55,17 +45,17 @@ pod中的容器共享network namespace，容器中运行的进程之间能够通
 ### 节点亲和性
 
 - nodeAffinity:
-
+  
   约束pod可以调度到哪些节点，是对nodeSelector的一种加强。有以下两种字段：
-
+  
   - requiredDuringSchedulingIgnoredDuringExecution（硬限制）：
-
+    
     表示node**必须**满足**pod指定条件**(matchExpression）才能将pod调度到这些节点上，否则**不进行调度**（与nodeSelector相同）
-
+  
   - preferredDuringSchedulingIgnoredDuringExecution（软限制）：
-
-    **偏好**将pod调度到满足pod指定条件的node上，如果节点不满足也没关系，**还是可以将pod调度到其他节点上**
-
+    
+    **偏好**将pod调度到满足pod指定条件的node上，如果没有满足指定条件的节点没关系，**还是可以将pod调度到其他节点上**
+  
   **IgnoredDuringExecution**表示纵使节点标签发生改变，pod仍可以在节点上继续运行
 
 ### pod间亲和性
@@ -73,16 +63,14 @@ pod中的容器共享network namespace，容器中运行的进程之间能够通
 **如果是大集群不建议使用pod亲和，否则需要涉及到大量的处理**
 
 - podAffinity和podAntiAffinity（pod亲和和反亲和）:
-
+  
   **既需要node匹配，又需要pod匹配**，他的规则是：如果 X 节点上已经运行了一个或多个 满足规则 Y 的pod，则这个 pod 应该（或者在非亲和的情况下不应该）运行在 X 节点，X和Y都是标签（X是node的标签，可以是k8s内置标签也可以是自定义标签，表示一个**拓扑域**，Y是pod标签）
-
+  
   字段与nodeAffinity相同，需要在pod的Spec中写明
-
-
 
 ### 污点和容忍度
 
-污点其实就是节点的**反亲和性**，用处在于某些pod需要调度到特定节点上，而其他pod不能调度到这些节点上（就需要给这些pod加上容忍度），或者是某些节点挂掉了，需要驱逐某些pod，或者加上容忍度，容忍在指定时间内节点可以恢复，否则就要被驱逐
+污点其实就是节点的**反亲和性**，用处在于某些pod需要调度到特定节点上，而其他pod不能调度到这些节点上（就需要给pod加上容忍度），或者是某些节点挂掉了，需要驱逐某些pod，或者加上容忍度，容忍在指定时间内节点可以恢复，否则就要被驱逐
 
 使用 kubectl taint nodes node1 key=value:NoSchedule命令给node加上taint，用法类似kubectl label，要说明的是NoSchedule，有以下几种动作：
 
@@ -110,23 +98,23 @@ init container不能使用readinessProbe和livenessProbe，**因为他们在应�
 
 两种限制：
 
-- requests:
-
+- requests（CPU shares）:
+  
   **节点上pod的requests总和不能超过节点可用资源的100%**，k8s的调度器调度也是根据requests来调度，如果pod的requests**小于**（节点可使用资源总量-其他pod申请量），即使其他pod的**实际使用资源量**未达到他们所申请量，这个pod也不可以调度到这个节点上。当未进行limits限制时，pod的实际使用资源量是可以**超过**申请量的，比如有pod暂时不需要CPU时，而有计算密集型pod需要全力使用CPU时，便可以超过申请量全部占用CPU。
 
-- limits（底层实际上是cgrop进行限制）:
-
-  **节点上pod的limits总和可以超过节点可用资源的100%，我们称之为超卖**，CPU进行limits限制时，进程分不到比限制量更多的CPU，而内存与CPU不同，因为内存一旦分配给进程，想要回收就需要进程主动释放，所以如果有恶意pod或者故障pod，或者是贪婪的进程就有可能吃掉节点上所有的内存，需要进行限制，**进程如果申请超过limits的量**或者节点使用总量超过100%就有可能会造成OOM(out of memory)，进程就会根据策略被杀死（linux OOM_reaper subsystem）
+- limits（CPU quota + CPU period):
+  
+  **节点上pod的limits总和可以超过节点可用资源的100%，我们称之为超卖**，CPU进行limits限制时，进程分不到比限制量更多的CPU，而内存与CPU不同，因为内存一旦分配给进程，想要回收就需要进程主动释放，**所以如果有恶意pod或者故障pod**，或者是贪婪的进程就有可能吃掉节点上所有的内存，需要进行限制，**进程如果申请超过limits的量**或者节点使用总量超过100%就有可能会造成OOM(out of memory)，进程就会根据策略被杀死（linux OOM_reaper subsystem）
 
 #### pod QoS
 
 三种等级（优先级从低到高）：
 
-- BestEffort
-- Burstable
-- Guranteed
+- BestEffort（未设置limit和request）
+- Burstable（limit和request设置不相等）
+- Guranteed（limit和request设置相等）
 
-当资源不够时，比如节点内存不够用时，就需要杀死pod中的进程，根据优先级**从低到高来杀死**
+当资源不够时，比如节点内存不够用时，就需要杀死pod，根据优先级**从低到高来杀死**
 
 那怎么来决定pod的QoS class呢，粗略的规则就是，BestEffort未声明requests和limits；Guranteed必须声明requests和limits，且两者相等；其他情况皆为Burstable（比如只有requests或者limits，requests<limits等），细致的规则可以参考：
 
@@ -138,19 +126,13 @@ init container不能使用readinessProbe和livenessProbe，**因为他们在应�
 
 ![img](https://tva1.sinaimg.cn/large/008eGmZEly1gnu8yai41bj32m20u0qv5.jpg)
 
-**当资源不够时，不同等级的情况下先杀死QoS等级低的Pod中的进程，相同等级的pod根据进程已使用资源量和可用资源量的比较来杀死进程**
-
-
+**当资源不够时，不同等级的情况下先杀死QoS等级低的Pod，相同等级的pod根据已使用资源量和可用资源量的比较来杀死**
 
 ### LimitRange和ResourceQuota
 
 LimitRange是用来限制某个命名空间**单个pod**的可用资源，API server中存在LimitRange admission control插件，当发起Pod Post请求时就需要进行检查或者添加字段，比如pod层面可以限定pod中所有容器的最小requests总和或最大limits总量，容器层面可以限定默认的requests和默认的limits，还可以限定PVC最大申请量等。不同命名空间可以有不同的LimitRange，但是LimitRange无法限制命名空间中所有pod的资源总量，这需要ResourceQuota
 
-
-
 ResourceQuota是用来限制某个命名空间**所有pod**的可用资源，限定命名空间中所有pod requests总和或者limits总和，但是要**注意的是**，这样pod必须限定resources字段，不然ResourceQuota无法确定已用的requests和limits量，或者明确给命名空间声明一个LimitRange
-
-
 
 ### HPA(horizontal pod autoscaler)
 
@@ -163,22 +145,58 @@ Autoscaler根据指定资源（通常是**CPU或者QPS（每秒查询率）**等
 - 单metric：如果是单资源计算的话，根据pod的`[实际使用资源量之和/目标值]`再向上取整
 - 多metrics：多资源计算的话，取各单metric的计算出的数量的Max值
 
+### 高级调度
 
+#### PriorityClass
+
+PriorityClass也是一种resource，用户可以指定value为0-1000000000之间的优先级，然后通过在Pod spec中指定PriorityClassName。优先级越高的Pod，在**多个Pod同时在队列中等待调度时可以优先被调度**，而且如果存在节点资源不够的情况下，**优先级低的Pod可以被优先级高的Pod抢占，优先级低的Pod被驱逐而等待重新调度**
+
+#### Pod打散
+
+https://kubernetes.io/zh/docs/concepts/workloads/pods/pod-topology-spread-constraints/
+
+将Pod均匀分布到指定拓扑域当中，这个拓扑域可以是Region,Zone或者Node。使各拓扑域中的Pod数量均匀分布。
+
+### pod调度
+
+两个主要队列：activeQ,unschedulableQ，需要调度的pod加入activeQ，调度失败的pod加入unschedulableQ
+
+- 过滤阶段
+  
+  比如筛选可用nodes，比如node资源是否足够，pod指定的卷或者端口是否可用，是否指定了node或者可容忍taint等
+
+- 打分阶段
+  
+  有pod亲和性，node亲和性打分，还有主要的根据节点水位打分：
+  
+  - 优先打散，就是根据 （节点可分配量-pod请求量）/节点可分配量，优先选择空闲资源比例最高的节点
+  - 优先堆叠，根据 已分配量/节点可分配量，优先选择负载高的节点
+  - 根据碎片率，按照CPU和内存两种资源来说，碎片率=1-Abs[CPU(Request / Allocatable) - Mem(Request / Allocatable)]
+
+### pod删除
+
+pod删除并不是立即删除，默认设置的grace-period是30秒，允许pod进行一些清理工作之后退出。
+
+- pod被标记为Terminating状态
+- 如果pod有preStop回调函数被设置，则执行，允许执行回调函数时间超过一点grace-period
+- 发送SIGTERM信号给pod中的所有容器的进程1
+- pod从service的endpoints，replicaset等管理中移除
+- 超过grace-period仍未删除，则触发强制删除，发送SIGKILL信号给所有容器中的进程
 
 ## ReplicationController
 
 rc负责创建和管理pod的多个副本，其有三个部件：
 
 - label selector（标签选择器）：
-
+  
   用来标识pod，rc**只负责管理创建rc时指定标签的pod**（**只管自己家的孩子**），如果在这之后pod更改了标签，就脱离了rc的管理范围（pod相当于手动创建，无人管理，变成了孤儿），rc认为现有pod数与replicas不符合（即少了一个pod），会根据template创建新的pod
 
-- rplica count（副本个数）：
-
+- replica count（副本个数）：
+  
   指定pod副本数
 
 - pod template（pod模板）：
-
+  
   用来创建新的pod，之后可以更改pod模板，只是创建出来的pod和之前的不一样了，rc并不关心pod长什么样，它只关心pod的副本数是不是符合预期
 
 **如果pod数多了rc就会删除多余的pod（使符合replicas数），少了就会创建新的pod**
@@ -216,57 +234,53 @@ ReplicationController的替代品，具有更强的标签筛选功能，工作�
 参考资料：https://www.qikqiak.com/post/visually-explained-k8s-service/
 
 - 服务发现：
-
+  
   - service如果早于pod创建，k8s会将为service维护的一些环境变量配置到容器当中
   - service也能通过kube dns通过域名解析来找到对应的ip（直接访问服务的FQDN，所有service对应的pod的容器当中，/etc/resolv.conf都有域名配置）
 
 - Endpoints：
-
+  
   Endpoints是**一对对的 ip：端口 对**（容器对外提供服务的那个端口），创建服务时是根据标签筛选器获得对应pod的ip：端口对，然后存储在Endpoints当中，当客户端连接service时，服务代理选择Endpoints当中的一个ip端口对，进行请求转发，也就是说，**服务有了Endpoints，才能将请求转发到相应的pod，没有标签筛选器筛选出对应的pod，服务只是个空服务而已**，如果更换或者移除了选择器，Endpoints也会跟着变动或者停止更新
 
 - 将服务暴露给客户端：
-
+  
   - Nodeport:将service的type设置为nodeport，k8s将会为每个节点上开一个指定端口，到该端口的流量都会重定向到此服务，然后再由服务重定向到pod
-
+    
     Client --> 节点的指定端口 -->cluster服务--> pod
-
+    
     既可以访问服务的集群ip来访问，也可以访问节点指定端口来访问
-
+    
     ![image-20200917195909101](https://tva1.sinaimg.cn/large/008eGmZEgy1gob3wn28e1j31400u0e8d.jpg)
 
-    
-
-  - LoadBalancer：将service的type指定为LoadBalancer，LoadBalancer需要有独有的公网ip，专门由负责负载均衡的机子来做重定向， 机制与nodeport一致（**只不过多做了一次数据流重定向**）
-
-    Client --> LoadBalancer --> 节点的指定端口-->cluster服务--> pod
-
-    ![image-20200917200648198](https://tva1.sinaimg.cn/large/008eGmZEgy1gob3wrz939j31400u0b2k.jpg)
-
+- LoadBalancer：将service的type指定为LoadBalancer，LoadBalancer需要有独有的公网ip，专门由负责负载均衡的机子来做重定向， 机制与nodeport一致（**只不过多做了一次数据流重定向**）
   
+  Client --> LoadBalancer --> 节点的指定端口-->cluster服务--> pod
+  
+  ![image-20200917200648198](https://tva1.sinaimg.cn/large/008eGmZEgy1gob3wrz939j31400u0b2k.jpg)
+  
+  ​        总结：Load Balancer --> Node Port --> cluster service 层层往下
 
-  ​		总结：Load Balancer --> Node Port --> cluster service 层层往下
-
-  - Ingress：
-
-    通过外加的ingress controller来进行反向代理和负载均衡，当客户端向ingress发送http请求，根据主机名和路径分发到对应的服务（**这样既可以只用一个公网ip就可以为多服务做负载均衡和对外暴露，又可以避免nodeport开放过多端口可能造成的安全问题，因为运行k8s需要关闭防火墙**），通过与该服务相关联的Endpoint来查看ip，然后将客户端的请求转发给其中一个pod
-
-    Client --> ingress controller --> pod
-
-    Ingress controller实现方案： nginx，traefix，HAproxy等等
-
-    ingress参考资料：https://www.cnblogs.com/linuxk/p/9706720.html
-
-    ingress controller通常通过daemonset实现，在每个node上跑一个pod（如nginx），它会监听ingress的变化，一旦有新的ingress就根据模板生成配置然后写入pod中，然后reload。ingress就是转发规则，要发往哪些service，指定什么URL来转发到相应的service。
+- Ingress：
+  
+  通过外加的ingress controller来进行反向代理和负载均衡，当客户端向ingress发送http请求，根据主机名和路径分发到对应的服务（**这样既可以只用一个公网ip就可以为多服务做负载均衡和对外暴露，又可以避免nodeport开放过多端口可能造成的安全问题，因为运行k8s需要关闭防火墙**），通过与该服务相关联的Endpoint来查看ip，然后将客户端的请求转发给其中一个pod
+  
+  Client --> ingress controller --> pod
+  
+  Ingress controller实现方案： nginx，traefik，HAproxy等等
+  
+  ingress参考资料：https://www.cnblogs.com/linuxk/p/9706720.html
+  
+  ingress controller通常通过daemonset实现，在每个node上跑一个pod（如nginx），它会监听ingress的变化，一旦有新的ingress就根据模板生成配置然后写入pod中，然后reload。ingress就是转发规则，要发往哪些service，指定什么URL来转发到相应的service。
 
 - headless服务：
-
-  将服务的clusterIP字段设置为none，k8s便不会为其分配集群ip，用dns查找服务会返回所有pod ip，客户端会直接访问pod，而不是经过服务代理
+  
+  将服务的clusterIP字段设置为none，k8s便不会为其分配集群ip，用dns查找pod的DNS记录，dns服务器会直接返回pod ip
+  
+  `<pod-name>.<svc-name>.<namespace>.svc.cluster.local`
 
 - External Name:
-
+  
   通过external name指定集群外部服务（DNS名），将其虚拟为内部服务（直接通过cluster ip访问即可）
-
-
 
 ## volume
 
@@ -274,43 +288,43 @@ ReplicationController的替代品，具有更强的标签筛选功能，工作�
 
 ### volume的种类
 
-- emptyDir（**一个pod中的多个容器共享**）:
+后三者比较普遍
 
+- emptyDir（**一个pod中的多个容器共享**）:
+  
   emptyDir卷的声明周期与pod的生命周期相同，卷的声明是在创建pod时声明的，**pod删除卷也跟着删除**，卷从一个空目录开始，挂载到多个容器的某个文件夹后（文件夹在不同容器的文件系统的位置可以不一样），多个容器之间便可以往里面存放文件，以便共享
 
 - gitRepo:
-
+  
   gitRepo实际上是一个emptyDir卷，与emptyDir同理，只不过创建卷后卷中会加入从git远程repo中clone下来的文件，比如web服务容器挂载了这样一个卷，网页开发者往git远程仓库里push新的网页版本，sidecar容器（通常是git syc容器）便可以进行数据同步，以便web服务器对外服务（**其实就是emptyDir的基础上之后多加了git repo中clone下来的数据而已**）
 
 - hostPath:
-
+  
   hostPath可以提供持久化存储，不会随pod删除而删除，它访问的是节点上的文件系统，容器可以通过挂载hostPath卷访问节点上的某些特定文件夹下的文件，但是**不推荐使用hostPath来作为数据库数据等需要一直保存在目录上的数据**，因为如果pod被重新调度到其他节点上就找不到hostPath上的数据了，所以应该用pv
 
 - configMap:
-
+  
   将每个configMap中的键值对暴露为文件放到卷中，挂载到容器当中之后从而容器可以进行读取，与emptyDir和gitRepo同理
 
 - PersistentVolume（持久化存储，后端存储）
-
+  
   **PV是对分布式存储资源的抽象**，pv的提供者可以是各种云提供商，如AWS，GCE，也可以是nfs，glusterfs，ceph等开源分布式存储系统，具体实现具体对待。pv的信息包括存储能力（比如容量多大），访问模式（是ReadWriteOnce，ReadOnlyMany，还是ReadWriteMany），回收策略（与pvc解绑后对pv的处理是保留，回收还是删除）等。
-
+  
   pvc是对pv的申请，可以与pv进行一一绑定，只要有pv满足pvc中申请的容量和访问模式，k8s就会将其绑定起来，pv一旦与pvc绑定起来就不能再去与其他pvc绑定了，但是如果pv大小不满足pvc申请量，pvc会一直pending，直到有足够大小的pv加入。**pvc就相当于是卷，然后pod使用其来挂载到对应目录，相当于是pod->pvc->pv三层结构**
-
+  
   - 动态绑定（**使用StorageClass**)：
-
-    原始的静态绑定如下：
-
-    ![img](https://www.kubernetes.org.cn/img/2018/06/20180604211538.png)
-
-    原始静态绑定需要管理员实现创建好pv，工作是非自动的，且pv的量是静态的，很有可能造成资源浪费，所以推荐使用动态绑定：
-
-    ![img](https://www.kubernetes.org.cn/img/2018/06/%E5%9B%BE%E7%89%872.png)
-
-    现在加入一个资源叫StorageClass，用户创建pvc后，storageclass的控制器会根据pvc指定的storageClassName来找到对应的存储类，然后动态的创建pv，再将其与pvc绑定，这样的好处是**既动态创建pv，减少了管理员的工作量，又使用存储类来抽象描述一种存储类别，比如是”快速存储“还是”慢速存储“，是”冗余存储“还是”无冗余存储“等等，非常直观**
-
-    如果没有默认存储类，且pvc没有指定storageClassName，则这个pvc只能与没有指定存储类的pv绑定，否则没有指定storageClassName的pvc将交由默认存储类处理
-
     
+    原始的静态绑定如下：
+    
+    ![img](https://www.kubernetes.org.cn/img/2018/06/20180604211538.png)
+    
+    原始静态绑定需要管理员实现创建好pv，工作是非自动的，且pv的量是静态的，很有可能造成资源浪费，所以推荐使用动态绑定：
+    
+    ![img](https://www.kubernetes.org.cn/img/2018/06/%E5%9B%BE%E7%89%872.png)
+    
+    现在加入一个资源叫StorageClass，用户创建pvc后，storageclass的控制器会根据pvc指定的storageClassName来找到对应的存储类，然后动态的创建pv，再将其与pvc绑定，这样的好处是**既动态创建pv，减少了管理员的工作量，又使用存储类来抽象描述一种存储类别，比如是”快速存储“还是”慢速存储“，是”冗余存储“还是”无冗余存储“等等，非常直观**
+    
+    如果没有默认存储类，且pvc没有指定storageClassName，则这个pvc只能与没有指定存储类的pv绑定，否则没有指定storageClassName的pvc将交由默认存储类处理
 
 ## ConfigMap
 
@@ -322,7 +336,7 @@ kubectl create configmap [configmap-name]即可创建configmap（或者kubectl c
 
 ### 参数形式：
 
-- --from-literal*key*value 直接用key*value形式定义变量
+- --from-literal *key* value 直接用key*value形式定义变量
 
 - --from-file*[file or directory] 读取文件为变量，如果没指定key，则直接用file的名字为key，value为file中的数据，如果读取的是整个文件夹，则文件夹下所有的文件都会被列为key*value
 
@@ -356,9 +370,7 @@ Tips:
 - 直接在pod manifest的container当中声明环境变量，引用manifest当中的某些字段（环境变量方式）
 - 通过挂载DownwardAPI卷来获取文件，从而获取元数据（卷方式，**卷方式才能暴露pod的标签和注解**）
 
-
-
-## Deployment 
+## Deployment
 
 deployment用于部署应用并以声明的形式升级应用
 
@@ -366,22 +378,22 @@ deployment用于部署应用并以声明的形式升级应用
 
 **更改deployment的**pod模板**即可完成升级，由k8s的控制器操作完成**
 
-### 升级方式
+### 发布方式
 
-- 蓝绿部署
-
+- 蓝绿发布
+  
   在运行新版本的pod之前，service流量始终定位到旧版本pod，一旦确定新版本功能运行正常，修改service的选择器，定位到新版本的pod，删除旧版本的replicaset
-
+  
   ![image-20201021161437006](https://tva1.sinaimg.cn/large/008eGmZEgy1gob3wyc4q2j31wu0u0u13.jpg)
 
-- 滚动升级
-
+- 滚动发布
+  
   新的rs控制新版本的pod，通过更改新旧rs的期望数量来弹性扩缩旧版本与新版本的pod数量，新版本pod一点点增多，旧版本pod一点点减少，直到所有更新为止
-
+  
   ![6D21A0ED0EAF37931D60F5EF5098258D](https://tva1.sinaimg.cn/large/008eGmZEgy1gob3x1q66qj31ou0u0npe.jpg)
 
-- 金丝雀升级
-
+- 金丝雀发布（灰度发布）
+  
   一小部分pod升级为新版本，牺牲一小部分用户的体验（beta版本），如果新版本适用则全部升级完成，否则回滚到上个版本
 
 ### kubectl rollout 命令
@@ -389,11 +401,11 @@ deployment用于部署应用并以声明的形式升级应用
 进行升级deployment时，可以通过kubectl rollout进行升级查看和回滚等
 
 - kubectl rollout status deployment [name]
-
+  
   查看滚动升级状态
 
 - history deployment [name] 
-
+  
   查看升级历史（可以指定revision来回滚指定版本）
 
 - pause 暂停滚动升级
@@ -401,48 +413,52 @@ deployment用于部署应用并以声明的形式升级应用
 - resume 恢复滚动升级
 
 - undo 回滚到上个版本
-
+  
   可添加--to-revision参数回到history给出的指定revision版本
 
 ### deployment manifest重要字段
 
 - maxSurge
-
+  
   除deployment定义的期望值外，最多允许超过的pod可用实例数量
 
 - maxUnavailable
-
+  
   相对于期望值，最多不可用pod的数量
 
 可以通过修改maxSurge和maxUnavailable控制滚动升级速度
 
 - minReadySeconds
-
+  
   pod至少要运行minReadySeconds秒，才能视其为可用状态，因为maxUnavailable限制了不可用pod数量，所以不可用的话，滚动升级不会继续
 
 ## StatefulSet
 
 **用来维护有状态应用**，因为有状态应用可能需要主机名，ip等不变
 
-statefulset维护的pod副本名是可预知的，按照statefulset名称加顺序索引值组成，每次扩缩容都是扩缩索引最高的那个
+statefulset维护的pod副本名是可预知的，按照statefulset名称加顺序索引值组成，pod的序号是递增的，只有在低序号的pod处于running和ready状态之后高序号的pod才会部署，缩容也是同个道理，要在高序号已经停止和删除之后才会终止低序号pod。K8S原生的statefulset不能删除[0,N-1]之间序号的某个pod
 
 statefulset对于有状态应用做出的改变：
 
 - 对于ip可能的改变：
-
+  
   需要你除statefulset之外额外定义一个headless service，然后根据域名来访问各个pod，这样每个pod的dns记录固定
 
 - 对于主机名维持不变
 
 - 对于pod删除而存储可能发生的变动：
-
+  
   如果statefulset维护的pod被删除了，与replicaset相同，statefulset会重新创建pod，但这个pod可能会调度到其他节点上，对于有状态应用来说，有状态的pod应该挂载原来相同的存储，这就需要pvc和pv，创建一个statefulset的时候，不仅需要写pod模板，还需要写pvc，**statefulset对每个pod都创建一个或多个独立的pvc**，因为挂载的pvc不变，所以新实例读取的仍然是旧实例的数据
-
+  
   注意：
-
+  
   如果pod被意外删除，**其挂载的pvc不会被删除**，因为如果pvc被删除，其绑定的pv可能会被回收或者删除，那其上的数据就丢失了，所以无论是缩容还是意外删除了statefulset的pod，都会保留pvc，意外缩容了statefulset之后仍然能通过扩容，将pod重新挂载原来丢失了挂载的pvc，但是statefulset只能**线性缩容**，不能在有一个实例不健康的时候进行缩容，这时同时有两个pod下线，那数据就丢失了。如果想删除pv，需要**手动**删除绑定的pvc
 
+tips:
 
+-  Statefulset因为pod启动有先后关系，所以角色是根据id号定死的，比如mysql statefulset的pod-0为master节点，其他序号大于0的pod为slave节点，但是如果需要场景下（比如redis哨兵模式）master挂了要slave能够成为master，那么statefulset就不好实现，需要引入Operator（有可能是Master一直在重启，那么就一直没主节点，其他pod的序号是不会动的）
+
+- Statefulset和Daemonset都可以滚动更新，和deployment的功能相同，主要是依赖于有个api资源叫**controllerRevision**，保存了控制器的api声明（Yaml）的历史版本，每个版本对应一个controllerRevsion
 
 ## ServiceAccount
 
@@ -478,6 +494,3 @@ Api server的访问过程需要经过的插件：认证(authenticaiton)-->授权
 - edit：除了role，rolebinding外可以读取和修改大部分资源
 - admin: 除了ResourceQuota能读取和修改所有资源
 - cluster admin:完全能读取和修改所有资源
-
-
-
