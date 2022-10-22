@@ -1,3 +1,14 @@
+```yaml
+title: "k8s-controller结构概析"
+date: 2022-10-23T14:51:48+08:00 
+description: "-controller结构概析"
+tags: [k8s]
+featured_image: "/images/k8s-logo.png"
+images: ["/images/k8s-logo.png"]
+categories: k8s
+comment : true
+```
+
 # k8s-controller
 
 本篇文章介绍k8s-controller的大致结构和大致流程
