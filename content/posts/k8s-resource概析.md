@@ -456,7 +456,7 @@ statefulset对于有状态应用做出的改变：
 
 tips:
 
--  Statefulset因为pod启动有先后关系，所以角色是根据id号定死的，比如mysql statefulset的pod-0为master节点，其他序号大于0的pod为slave节点，但是如果需要场景下（比如redis哨兵模式）master挂了要slave能够成为master，那么statefulset就不好实现，需要引入Operator（有可能是Master一直在重启，那么就一直没主节点，其他pod的序号是不会动的）
+- Statefulset因为pod启动有先后关系，所以角色是根据id号定死的，比如mysql statefulset的pod-0为master节点，其他序号大于0的pod为slave节点，但是如果需要场景下（比如redis哨兵模式）master挂了要slave能够成为master，那么statefulset就不好实现，需要引入Operator（有可能是Master一直在重启，那么就一直没主节点，其他pod的序号是不会动的）
 
 - Statefulset和Daemonset都可以滚动更新，和deployment的功能相同，主要是依赖于有个api资源叫**controllerRevision**，保存了控制器的api声明（Yaml）的历史版本，每个版本对应一个controllerRevsion
 

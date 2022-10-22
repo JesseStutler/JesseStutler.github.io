@@ -1,13 +1,13 @@
-```yaml
-title: "k8s-controller结构概析"
-date: 2022-10-23T14:51:48+08:00 
-description: "-controller结构概析"
+---
+title: "K8s Controller概析"
+date: 2022-10-23T21:45:58+08:00 
+description: "对于k8s-controller通用结构和通用流程的概析"
 tags: [k8s]
 featured_image: "/images/k8s-logo.png"
 images: ["/images/k8s-logo.png"]
 categories: k8s
 comment : true
-```
+---
 
 # k8s-controller
 
