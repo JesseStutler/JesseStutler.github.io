@@ -248,10 +248,4 @@ podAffinity和podAntiAffinity（pod亲和和反亲和）:
 既需要node匹配，又需要pod匹配，他的规则是：如果 X 节点上已经运行了一个或多个 满足规则 Y 的pod，则这个 pod 应该（或者在非亲和的情况下不应该）运行在 X 节点，X和Y都是标签（X是node的标签，可以是k8s内置标签也可以是自定义标签，表示一个拓扑域，Y是pod标签）
 字段与nodeAffinity相同，需要在pod的Spec中写明
 污点和容忍度 污点其实就是节点的反亲和性，用处在于某些pod需要调度到特定节点上，而其他pod不能调度到这些节点上（就需要给pod加上容忍度），或者是某些节点挂掉了，需要驱逐某些pod，或者加上容忍度，容忍在指定时间内节点可以恢复，否则就要被驱逐
-使用 kubectl taint nodes node1 key=value:NoSchedule命令给node加上taint，用法类似kubectl label，要说明的是NoSchedule，有以下几种动作：</description></item><item><title/><link>https://jessestutler.github.io/posts/k8s-controller%E6%A6%82%E6%9E%90/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://jessestutler.github.io/posts/k8s-controller%E6%A6%82%E6%9E%90/</guid><description>title: &amp;#34;k8s-controller结构概析&amp;#34; date: 2022-10-23T14:51:48+08:00 description: &amp;#34;-controller结构概析&amp;#34; tags: [k8s] featured_image: &amp;#34;/images/k8s-logo.png&amp;#34; images: [&amp;#34;/images/k8s-logo.png&amp;#34;] categories: k8s comment : true k8s-controller 本篇文章介绍k8s-controller的大致结构和大致流程
-此图展现了Controller的整体通用结构，上部Client-go部分是所有controller通用代码的抽象包（包括各种资源的controller，kube-proxy等，这部分大家都差不多），而下部custom controller是具体controller的逻辑代码
-1）Reflector list&amp;amp;watch controller自己有对监控的资源的缓存，与从api server中查到的数据（最终来自etcd）一致，List用来获取资源的全量数据（每经过resyncPeriod时间，就使用List获取最新版本的API对象，强制更新缓存，保证缓存的有效性），Watch用来对资源进行监听，以增量的方式接收资源对象的变更。Reflector会保存一个lastSyncResourceVersion，表示上次同步的版本，用来进行容错，出错时就从上次同步的版本开始。Reflector的工作就是将从api server HTTP GET到的数据实例化成对象，可以把Reflector视为informer的前端
-Reflector工作流程：
-从api server获取一次全量对象，更新ResourceVersion，插入一个Sync类型的Delta到Delta FIFO中 开一个go routine每resyncPeriod获取全量对象，做法同1 Watch ResourceVersion以后的对象变化情况，一旦有对象变化，根据变化类型（是新增，更新还是删除）产生相应类型的Delta插入到DeltaFIFO中 2) Reflector Add Object Reflector作为生产者，informer作为消费者，Reflector将资源的变更事件放到队列当中，由Informer处理增量事件（sync，add，update，delete等）
-增量事件表示（Delta）：
-type Delta struct { Type DeltaType // 增量事件类型，如Added, Updated, Deleted, Sync Object interface{} //资源实例全部信息 } type DeltaFIFO struct{ ... items map[string]Deltas //存放了某个资源的所有变更时间，注意这里Delta是复数，Deltas代表的是切片 queue []string //key的队列 ... } 当事件为sync时，reflector会得到关于资源的list，如果本地缓存存在某个key，而list中不存在这个key，会产生delete事件插入到DelataFIFO当中</description></item></channel></rss>
+使用 kubectl taint nodes node1 key=value:NoSchedule命令给node加上taint，用法类似kubectl label，要说明的是NoSchedule，有以下几种动作：</description></item></channel></rss>
